@@ -1,0 +1,47 @@
+# Environment variables & secrets
+.env
+.env.local
+*.pem
+*.key
+*.pkey
+secrets.json
+
+# AWS credentials
+.aws/
+.serverless/
+aws_credentials.txt
+
+# API Keys & Tokens (never commit these!)
+api_keys.json
+oauth_tokens.json
+schwab_credentials.txt
+anthropic_api_key.txt
+
+# Python & IDE
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build & deployment
+build/
+dist/
+*.egg
+
+# Logs
+*.log
+logs/
