@@ -143,6 +143,7 @@ TRADE_JOURNAL_TABLE = os.environ.get('TRADE_JOURNAL_TABLE', 'mcelveen-trade-jour
 POSITIONS_SNAPSHOT_TABLE = os.environ.get('POSITIONS_SNAPSHOT_TABLE', 'mcelveen-positions-snapshot')
 EXECUTION_LOG_TABLE = os.environ.get('EXECUTION_LOG_TABLE', 'mcelveen-execution-log')
 PORTFOLIO_METRICS_TABLE = os.environ.get('PORTFOLIO_METRICS_TABLE', 'mcelveen-portfolio-metrics')
+OAUTH_TOKENS_TABLE = os.environ.get('OAUTH_TOKENS_TABLE', 'mcelveen-oauth-tokens')
 SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN', 'arn:aws:sns:us-east-2:650589744593:McElveenAlerts')
 ALERT_EMAIL = os.environ.get('ALERT_EMAIL', 'kvmcelveen@outlook.com,tesheina11@outlook.com')
 
@@ -836,16 +837,17 @@ def store_refresh_token_to_dynamodb(refresh_token):
     FIX v3.0.32: Store new refresh token in DynamoDB for persistence.
     Schwab returns a new refresh_token with each refresh (valid 7 days).
     Store it so next execution uses the fresh token.
+    Uses dedicated OAUTH_TOKENS_TABLE with 'token_id' as partition key.
     """
     try:
-        table = DYNAMODB.Table(EXECUTION_LOG_TABLE)
+        table = DYNAMODB.Table(OAUTH_TOKENS_TABLE)
         table.put_item(Item={
-            'token_id': 'schwab-refresh-token',  # Fixed key for easy retrieval
+            'token_id': 'schwab-refresh-token',  # Partition key for oauth tokens
             'token_value': refresh_token,
             'timestamp': datetime.utcnow().isoformat() + 'Z',
             'ttl': int((datetime.utcnow() + timedelta(days=8)).timestamp())  # Auto-expire after 8 days
         })
-        print(f"[OAUTH] ✅ New refresh token stored in DynamoDB")
+        print(f"[OAUTH] ✅ New refresh token stored in DynamoDB (OAUTH_TOKENS_TABLE)")
         return True
     except Exception as e:
         print(f"[WARN] Failed to store token in DynamoDB: {e}")
@@ -856,13 +858,14 @@ def get_refresh_token_from_dynamodb():
     """
     FIX v3.0.32: Retrieve stored refresh token from DynamoDB.
     Falls back to environment variable if not found.
+    Uses dedicated OAUTH_TOKENS_TABLE with 'token_id' as partition key.
     """
     try:
-        table = DYNAMODB.Table(EXECUTION_LOG_TABLE)
+        table = DYNAMODB.Table(OAUTH_TOKENS_TABLE)
         response = table.get_item(Key={'token_id': 'schwab-refresh-token'})
         if 'Item' in response:
             stored_token = response['Item'].get('token_value')
-            print(f"[OAUTH] ✅ Retrieved refresh token from DynamoDB")
+            print(f"[OAUTH] ✅ Retrieved refresh token from DynamoDB (OAUTH_TOKENS_TABLE)")
             return stored_token
     except Exception as e:
         print(f"[WARN] Failed to retrieve token from DynamoDB: {e}")
