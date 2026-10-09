@@ -15,6 +15,41 @@ from datetime import datetime
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# ============================================================================
+# Environment Variables (Loaded from Lambda Environment or .env file)
+# ============================================================================
+# NOTE: Never hardcode credentials. Always load from environment.
+# For local development, create a .env file (never commit it).
+# For AWS Lambda, set these in Configuration → Environment variables.
+
+try:
+    SCHWAB_CLIENT_ID = os.getenv('SCHWAB_CLIENT_ID')
+    SCHWAB_CLIENT_SECRET = os.getenv('SCHWAB_CLIENT_SECRET')
+    SCHWAB_REFRESH_TOKEN = os.getenv('SCHWAB_REFRESH_TOKEN')
+    SCHWAB_ACCOUNT_ID = os.getenv('SCHWAB_ACCOUNT_ID')
+    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+    AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+
+    # Validate that required environment variables are set
+    required_vars = {
+        'SCHWAB_CLIENT_ID': SCHWAB_CLIENT_ID,
+        'SCHWAB_CLIENT_SECRET': SCHWAB_CLIENT_SECRET,
+        'SCHWAB_REFRESH_TOKEN': SCHWAB_REFRESH_TOKEN,
+        'ANTHROPIC_API_KEY': ANTHROPIC_API_KEY,
+    }
+
+    missing_vars = [var for var, value in required_vars.items() if not value]
+    if missing_vars:
+        error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
+        logger.critical(error_msg)
+        raise ValueError(error_msg)
+
+    logger.info("[CONFIG] All required environment variables loaded successfully")
+
+except Exception as config_error:
+    logger.critical(f"[CONFIG] Failed to load environment variables: {str(config_error)}")
+    raise
+
 def lambda_handler(event, context):
     """
     Main Lambda handler function.
