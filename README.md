@@ -448,7 +448,7 @@ See [LICENSE.COMMERCIAL](LICENSE.COMMERCIAL) for Commercial License terms.
 
 **Kevin McElveen**  
 AI Systems Architect | Cloud Engineer | Autonomous Trading Specialist  
-Augusta, GA | kmcelveen@getpaylinq.com
+Augusta, GA | kvmcelveen@outlook.com
 
 ---
 
