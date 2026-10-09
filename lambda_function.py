@@ -831,20 +831,73 @@ def get_comprehensive_stock_universe(access_token):
 # OAUTH & ACCOUNT
 # =====================================================================
 
-def refresh_schwab_access_token():
-    """Refresh Schwab OAuth access token."""
+def store_refresh_token_to_dynamodb(refresh_token):
+    """
+    FIX v3.0.32: Store new refresh token in DynamoDB for persistence.
+    Schwab returns a new refresh_token with each refresh (valid 7 days).
+    Store it so next execution uses the fresh token.
+    """
     try:
+        table = DYNAMODB.Table(EXECUTION_LOG_TABLE)
+        table.put_item(Item={
+            'token_id': 'schwab-refresh-token',  # Fixed key for easy retrieval
+            'token_value': refresh_token,
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'ttl': int((datetime.utcnow() + timedelta(days=8)).timestamp())  # Auto-expire after 8 days
+        })
+        print(f"[OAUTH] ✅ New refresh token stored in DynamoDB")
+        return True
+    except Exception as e:
+        print(f"[WARN] Failed to store token in DynamoDB: {e}")
+        return False
+
+
+def get_refresh_token_from_dynamodb():
+    """
+    FIX v3.0.32: Retrieve stored refresh token from DynamoDB.
+    Falls back to environment variable if not found.
+    """
+    try:
+        table = DYNAMODB.Table(EXECUTION_LOG_TABLE)
+        response = table.get_item(Key={'token_id': 'schwab-refresh-token'})
+        if 'Item' in response:
+            stored_token = response['Item'].get('token_value')
+            print(f"[OAUTH] ✅ Retrieved refresh token from DynamoDB")
+            return stored_token
+    except Exception as e:
+        print(f"[WARN] Failed to retrieve token from DynamoDB: {e}")
+
+    # Fallback to environment variable
+    print(f"[OAUTH] Using refresh token from environment")
+    return SCHWAB_REFRESH_TOKEN
+
+
+def refresh_schwab_access_token():
+    """
+    Refresh Schwab OAuth access token.
+    FIX v3.0.32: Capture and store new refresh_token for automatic 7-day renewal.
+    """
+    try:
+        # Get the latest refresh token (from DynamoDB or environment)
+        refresh_token = get_refresh_token_from_dynamodb()
+
         url = "https://api.schwabapi.com/v1/oauth/token"
         credentials = f"{SCHWAB_CLIENT_ID}:{SCHWAB_CLIENT_SECRET}"
         encoded_credentials = base64.b64encode(credentials.encode()).decode()
         headers = {'Authorization': f'Basic {encoded_credentials}', 'Content-Type': 'application/x-www-form-urlencoded'}
-        data = {'grant_type': 'refresh_token', 'refresh_token': SCHWAB_REFRESH_TOKEN}
+        data = {'grant_type': 'refresh_token', 'refresh_token': refresh_token}
         response = requests.post(url, headers=headers, data=data, timeout=10)
 
         if response.status_code == 200:
             token_data = response.json()
             access_token = token_data.get('access_token')
+            new_refresh_token = token_data.get('refresh_token')  # FIX v3.0.32: Capture new refresh_token
             expires_in = token_data.get('expires_in', 1800)
+
+            # FIX v3.0.32: Store the new refresh_token for next execution
+            if new_refresh_token:
+                store_refresh_token_to_dynamodb(new_refresh_token)
+
             print(f"[OAUTH] ✅ Token refreshed (expires in {expires_in}s)")
             return access_token
         else:
