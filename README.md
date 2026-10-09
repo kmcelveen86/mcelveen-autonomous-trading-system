@@ -423,7 +423,7 @@ This is a personal project demonstrating autonomous AI decision-making in produc
 - Automatic updates and security patches
 
 📧 **To purchase a Commercial License:**  
-Contact: kmcelveen@getpaylinq.com  
+Contact: kvmcelveen@outlook.com  
 Subject: "McElveen Autonomous Trading System - Commercial License"
 
 See [LICENSE.COMMERCIAL](LICENSE.COMMERCIAL) for full commercial terms.  
