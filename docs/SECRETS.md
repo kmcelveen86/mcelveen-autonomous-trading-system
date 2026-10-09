@@ -27,7 +27,7 @@ SCHWAB_CLIENT_SECRET=your-actual-secret
 SCHWAB_REFRESH_TOKEN=your-refresh-token
 SCHWAB_ACCOUNT_ID=your-account-id
 
-ANTHROPIC_API_KEY=your-actual-api-key
+CLAUDE_API_KEY=your-actual-api-key
 
 PORTFOLIO_TARGET_ALLOCATION={"US_EQUITIES": 0.60, "INTERNATIONAL": 0.20, "BONDS": 0.15, "CASH": 0.05}
 VIX_THRESHOLD_AGGRESSIVE=15
@@ -48,7 +48,7 @@ load_dotenv()
 
 # Access credentials
 client_id = os.getenv('SCHWAB_CLIENT_ID')
-api_key = os.getenv('ANTHROPIC_API_KEY')
+api_key = os.getenv('CLAUDE_API_KEY')
 ```
 
 ### 4. Verify `.env` is in `.gitignore`
@@ -70,7 +70,7 @@ grep "\.env" .gitignore  # Should show .env listed
    - `SCHWAB_CLIENT_ID=xxx`
    - `SCHWAB_CLIENT_SECRET=xxx`
    - `SCHWAB_REFRESH_TOKEN=xxx`
-   - `ANTHROPIC_API_KEY=xxx`
+   - `CLAUDE_API_KEY=xxx`
    - `AWS_REGION=us-east-1`
 
 **Option B: AWS CLI**
@@ -90,7 +90,7 @@ required_vars = {
     'SCHWAB_CLIENT_ID': SCHWAB_CLIENT_ID,
     'SCHWAB_CLIENT_SECRET': SCHWAB_CLIENT_SECRET,
     'SCHWAB_REFRESH_TOKEN': SCHWAB_REFRESH_TOKEN,
-    'ANTHROPIC_API_KEY': ANTHROPIC_API_KEY,
+    'CLAUDE_API_KEY': CLAUDE_API_KEY,
 }
 
 missing_vars = [var for var, value in required_vars.items() if not value]
@@ -126,7 +126,7 @@ def get_secrets():
 # In lambda_handler
 secrets = get_secrets()
 SCHWAB_CLIENT_ID = secrets['SCHWAB_CLIENT_ID']
-ANTHROPIC_API_KEY = secrets['ANTHROPIC_API_KEY']
+CLAUDE_API_KEY = secrets['CLAUDE_API_KEY']
 ```
 
 **Why Secrets Manager?**
@@ -217,7 +217,7 @@ cp .env.example .env
 | Credential | Rotation | Why |
 |------------|----------|-----|
 | SCHWAB_CLIENT_SECRET | Every 90 days | Schwab security policy |
-| ANTHROPIC_API_KEY | Every 6 months | Standard practice |
+| CLAUDE_API_KEY | Every 6 months | Standard practice |
 | SCHWAB_REFRESH_TOKEN | On demand only | Long-lived token, rotate if leaked |
 
 ---

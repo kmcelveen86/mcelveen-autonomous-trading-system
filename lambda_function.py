@@ -27,7 +27,7 @@ try:
     SCHWAB_CLIENT_SECRET = os.getenv('SCHWAB_CLIENT_SECRET')
     SCHWAB_REFRESH_TOKEN = os.getenv('SCHWAB_REFRESH_TOKEN')
     SCHWAB_ACCOUNT_ID = os.getenv('SCHWAB_ACCOUNT_ID')
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+    CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
     AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
 
     # Validate that required environment variables are set
@@ -35,7 +35,7 @@ try:
         'SCHWAB_CLIENT_ID': SCHWAB_CLIENT_ID,
         'SCHWAB_CLIENT_SECRET': SCHWAB_CLIENT_SECRET,
         'SCHWAB_REFRESH_TOKEN': SCHWAB_REFRESH_TOKEN,
-        'ANTHROPIC_API_KEY': ANTHROPIC_API_KEY,
+        'CLAUDE_API_KEY': CLAUDE_API_KEY,
     }
 
     missing_vars = [var for var, value in required_vars.items() if not value]
