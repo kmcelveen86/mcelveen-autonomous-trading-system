@@ -401,33 +401,46 @@ This is a personal project demonstrating autonomous AI decision-making in produc
 
 ## 📝 License
 
-**Dual-Licensed:**
+**Personal Use License (Free) + Commercial License ($10K/year)**
 
-| Use Case | License | Cost | Includes |
-|----------|---------|------|----------|
-| **Personal / Research** | MIT License | Free | Full source access, modifications allowed |
-| **Commercial / Production** | Commercial License | $10,000/year | Priority support, updates, consultations |
+| Use Case | License | Cost | Status |
+|----------|---------|------|--------|
+| **Personal Trading** | Personal Use License | Free | ✅ Allowed |
+| **Research / Education** | Personal Use License | Free | ✅ Allowed |
+| **Commercial / Revenue** | Commercial License | $10,000/year | 🔒 Required |
 
-**Personal Use (MIT License):**
-- Use for personal trading only
-- Research and educational purposes
-- Non-commercial deployments
-- Attribution required
+### ✅ Personal Use (Free)
+Use this system if you:
+- Trade your own account only
+- Use it for research or learning
+- Don't generate revenue from it
+- Keep the copyright notice
 
-**Commercial Use (Commercial License):**
-- Production deployments
-- Revenue-generating services
-- Unlimited modifications (for internal use)
+### 🔒 Commercial Use (Requires License)
+You MUST purchase a Commercial License ($10,000/year) if you:
+- Manage other people's money
+- Provide trading services or signals
+- Build a trading platform (SaaS)
+- Generate revenue using this system
+- Deploy in a business or investment firm
+
+**What's Included in Commercial License:**
+- Full source code access (closed-source allowed)
 - Priority email support (48-hour response)
 - Quarterly technical consultations
 - Automatic updates and security patches
+- Custom modifications for your business
 
 📧 **To purchase a Commercial License:**  
 Contact: kvmcelveen@outlook.com  
 Subject: "McElveen Autonomous Trading System - Commercial License"
 
-See [LICENSE.COMMERCIAL](LICENSE.COMMERCIAL) for full commercial terms.  
-See [LICENSE](LICENSE) for MIT License terms.
+Include: organization name, use case, deployment environment, timeline
+
+---
+
+See [LICENSE](LICENSE) for full Personal Use terms.  
+See [LICENSE.COMMERCIAL](LICENSE.COMMERCIAL) for Commercial License terms.
 
 ---
 
