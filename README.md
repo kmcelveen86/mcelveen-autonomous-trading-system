@@ -401,7 +401,33 @@ This is a personal project demonstrating autonomous AI decision-making in produc
 
 ## 📝 License
 
-Proprietary — McElveen Enterprises, 2026
+**Dual-Licensed:**
+
+| Use Case | License | Cost | Includes |
+|----------|---------|------|----------|
+| **Personal / Research** | MIT License | Free | Full source access, modifications allowed |
+| **Commercial / Production** | Commercial License | $10,000/year | Priority support, updates, consultations |
+
+**Personal Use (MIT License):**
+- Use for personal trading only
+- Research and educational purposes
+- Non-commercial deployments
+- Attribution required
+
+**Commercial Use (Commercial License):**
+- Production deployments
+- Revenue-generating services
+- Unlimited modifications (for internal use)
+- Priority email support (48-hour response)
+- Quarterly technical consultations
+- Automatic updates and security patches
+
+📧 **To purchase a Commercial License:**  
+Contact: kmcelveen@getpaylinq.com  
+Subject: "McElveen Autonomous Trading System - Commercial License"
+
+See [LICENSE.COMMERCIAL](LICENSE.COMMERCIAL) for full commercial terms.  
+See [LICENSE](LICENSE) for MIT License terms.
 
 ---
 

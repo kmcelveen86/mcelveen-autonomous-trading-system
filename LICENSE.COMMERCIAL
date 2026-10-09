@@ -1,0 +1,84 @@
+MCELVEEN AUTONOMOUS TRADING SYSTEM - COMMERCIAL LICENSE AGREEMENT
+
+Version 1.0 | Effective October 9, 2026
+
+LICENSOR: Kevin McElveen, McElveen Enterprises LLC
+PRODUCT: McElveen Autonomous Trading System
+
+---
+
+GRANT OF LICENSE
+
+This Commercial License grants you the right to use the McElveen Autonomous 
+Trading System in commercial, production, or revenue-generating environments, 
+subject to the terms and conditions below.
+
+---
+
+LICENSE TERMS
+
+1. COMMERCIAL USE
+   - You may deploy this system in production environments
+   - You may generate revenue from services using this system
+   - You may modify the code for your business needs
+   - You may run it on cloud infrastructure (AWS, etc.)
+
+2. RESTRICTIONS
+   - You may NOT redistribute or resell the source code
+   - You may NOT remove or modify copyright notices
+   - You may NOT sublicense this software
+   - Modifications remain confidential to your organization
+
+3. PAYMENT TERMS
+   - Annual License Fee: $10,000 USD per organization
+   - Renewable annually
+   - Includes updates, security patches, and technical support
+   - Volume/enterprise pricing available upon request
+
+4. SUPPORT & UPDATES
+   - Priority email support (48-hour response)
+   - Access to private GitHub repo with updates
+   - Quarterly technical consultations
+   - Security patches and bug fixes
+
+5. TERMINATION
+   - License terminates if payment is 30 days overdue
+   - Upon termination, you must cease all use and deployment
+   - Kevin McElveen retains all rights to the software
+
+6. DISCLAIMER
+   THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED. IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY DAMAGES ARISING
+   FROM THE USE OF THIS SOFTWARE.
+
+---
+
+TO PURCHASE A COMMERCIAL LICENSE:
+Contact: kmcelveen@getpaylinq.com
+Subject: "McElveen Autonomous Trading System - Commercial License"
+
+Include:
+- Organization name
+- Intended use case
+- Deployment environment (cloud, on-prem, etc.)
+- Expected trading volume/accounts
+- Timeline for deployment
+
+---
+
+OPEN SOURCE ALTERNATIVE:
+
+The McElveen Autonomous Trading System is also available under the MIT License 
+for personal, research, and non-commercial use at no cost.
+
+MIT License applies if you:
+- Use it for personal trading only
+- Use it for research/educational purposes
+- Don't generate revenue from it
+- Properly attribute the original work
+
+See LICENSE file for MIT License terms.
+
+---
+
+© 2026 Kevin McElveen, McElveen Enterprises LLC. All rights reserved.
