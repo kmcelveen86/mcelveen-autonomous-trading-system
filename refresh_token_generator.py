@@ -27,7 +27,7 @@ SCHWAB_CLIENT_ID = os.getenv('SCHWAB_CLIENT_ID', '')
 SCHWAB_CLIENT_SECRET = os.getenv('SCHWAB_CLIENT_SECRET', '')
 SCHWAB_AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
 SCHWAB_TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
-REDIRECT_URI = 'http://localhost:8080/callback'
+REDIRECT_URI = 'https://bloomers-deplored-width.ngrok-free.dev/callback'
 CALLBACK_PORT = 8080
 
 # Global state
