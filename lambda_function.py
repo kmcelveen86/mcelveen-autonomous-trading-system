@@ -154,6 +154,8 @@ SCHWAB_REFRESH_TOKEN = os.environ.get('SCHWAB_REFRESH_TOKEN')
 
 # Claude API
 CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY')
+ENABLE_CACHE = os.environ.get('ENABLE_CACHE', 'false').lower() == 'true'
+CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-sonnet-5')
 
 # Risk parameters
 VOLATILITY_REGIMES = {
@@ -286,27 +288,16 @@ def chief_investment_officer_analysis(vix, yields, sector_performance, portfolio
         # BUG: Old prompt used ${amount:.2f} which Python f-string tried to evaluate
         # RESULT: "cannot access local variable 'amount' where it is not associated with a value"
         # FIX: Changed example format to plain text "dollar amount - example: $10.92"
-        macro_prompt = f"""
-You are the Chief Investment Officer for McElveen Autonomous Trading System.
+
+        # Separate system and user messages for token caching support
+        system_prompt = """You are the Chief Investment Officer for McElveen Autonomous Trading System.
 You read market data AND portfolio constraints to recommend SPECIFIC TICKERS with position sizes.
-
-MARKET DATA:
-- VIX: {vix:.1f}
-- Yields: TLT={yields.get('TLT', 100):.2f}, IEF={yields.get('IEF', 100):.2f}
-- Sector leaders: {json.dumps({k: v for k, v in list(sector_performance.items())[:5]}, indent=2)}
-
-PORTFOLIO CONSTRAINTS:
-- Portfolio NAV: ${nav:.2f}
-- Available cash: ${available_cash:.2f}
-- Current holdings: {num_holdings}
-- Drawdown: {drawdown:.2f}%
-- Can invest: ${available_cash:.2f}
 
 YOUR JOB:
 1. Analyze macro regime + rate environment
 2. Assess portfolio drawdown and recovery opportunity
 3. Recommend 1-3 SPECIFIC TICKERS for current conditions
-4. Size each recommendation to available cash (${available_cash:.2f})
+4. Size each recommendation to available cash
 5. Return conviction level (1-10) for each pick
 
 OUTPUT EXACTLY:
@@ -327,13 +318,42 @@ RECOMMENDATION_2: (optional if secondary pick makes sense)
 TICKER: [symbol]
 AMOUNT: [dollar amount - example: $10.92]
 RATIONALE: [one sentence]
-CONVICTION: [1-10]
-"""
+CONVICTION: [1-10]"""
+
+        user_data = f"""MARKET DATA:
+- VIX: {vix:.1f}
+- Yields: TLT={yields.get('TLT', 100):.2f}, IEF={yields.get('IEF', 100):.2f}
+- Sector leaders: {json.dumps({k: v for k, v in list(sector_performance.items())[:5]}, indent=2)}
+
+PORTFOLIO CONSTRAINTS:
+- Portfolio NAV: ${nav:.2f}
+- Available cash: ${available_cash:.2f}
+- Current holdings: {num_holdings}
+- Drawdown: {drawdown:.2f}%
+- Can invest: ${available_cash:.2f}"""
+
+        # Build messages with optional cache control
+        messages = [{'role': 'user', 'content': user_data}]
+
+        # Prepare system message with cache control if enabled
+        if ENABLE_CACHE:
+            system_message = [
+                {
+                    'type': 'text',
+                    'text': system_prompt,
+                    'cache_control': {'type': 'ephemeral'}
+                }
+            ]
+            print("[CACHE] Token caching ENABLED - using ephemeral cache for CIO system prompt")
+        else:
+            system_message = system_prompt
+            print("[CACHE] Token caching DISABLED - standard API call")
 
         response = client.messages.create(
-            model='claude-opus-5-5',
+            model=CLAUDE_MODEL,
             max_tokens=400,
-            messages=[{'role': 'user', 'content': macro_prompt}]
+            system=system_message,
+            messages=messages
         )
 
         response_text = ""
@@ -341,6 +361,21 @@ CONVICTION: [1-10]
             if hasattr(block, 'text'):
                 response_text = block.text
                 break
+
+        # Log cache metrics for monitoring
+        if ENABLE_CACHE and hasattr(response, 'usage'):
+            cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0)
+            cache_read_tokens = getattr(response.usage, 'cache_read_input_tokens', 0)
+            input_tokens = getattr(response.usage, 'input_tokens', 0)
+            output_tokens = getattr(response.usage, 'output_tokens', 0)
+
+            if cache_creation_tokens > 0:
+                print(f"[CACHE] WRITE - Created cache with {cache_creation_tokens} tokens (system prompt cached)")
+            elif cache_read_tokens > 0:
+                cache_hit_savings = cache_read_tokens * 0.9  # 90% cost reduction on cached tokens
+                print(f"[CACHE] HIT - Read {cache_read_tokens} tokens from cache (saved ~${cache_hit_savings * 0.000001:.4f})")
+
+            print(f"[TOKENS] Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
 
         # Parse response (DEFENSIVE PARSING - FIX v3.0.31 #3)
         # Handles incomplete/out-of-order recommendation blocks gracefully
