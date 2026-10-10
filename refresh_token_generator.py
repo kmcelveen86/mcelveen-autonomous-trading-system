@@ -179,20 +179,18 @@ def main():
         print("[ERROR] Failed to start callback server")
         sys.exit(1)
 
-    # Generate OAuth URL and open browser
+    # Generate OAuth URL and print for manual navigation
     auth_url = get_authorization_url()
-    print("[OAUTH] 🌐 Opening browser to Schwab authorization page...")
-    print(f"[OAUTH] Authorization URL: {auth_url}")
+    print("[OAUTH] 🌐 Schwab authorization URL:")
+    print(auth_url)
     print()
-    print("⏳ Waiting for authorization...")
-    print("   1. A browser will open to Schwab OAuth")
+    print("⏳ Instructions:")
+    print("   1. Copy the URL above and paste it into your browser")
     print("   2. Login with your Schwab credentials")
-    print("   3. Accept the permissions")
-    print("   4. We'll automatically capture the authorization code")
+    print("   3. Accept the permissions and select your account")
+    print("   4. Click 'Done' - we'll automatically capture the authorization code")
     print()
-
-    # Open browser
-    webbrowser.open(auth_url)
+    print("[OAUTH] ✅ Script is listening for your callback...")
 
     # Wait for authorization code
     timeout = 300  # 5 minutes
