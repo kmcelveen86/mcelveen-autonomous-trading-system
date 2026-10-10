@@ -241,10 +241,13 @@ def main():
     print()
 
     # Save token to a file for reference
-    output_file = '/tmp/schwab_refresh_token.txt'
-    with open(output_file, 'w') as f:
-        f.write(refresh_token)
-    print(f"[INFO] Token also saved to: {output_file}")
+    output_file = os.path.expanduser('~/schwab_refresh_token.txt')
+    try:
+        with open(output_file, 'w') as f:
+            f.write(refresh_token)
+        print(f"[INFO] Token also saved to: {output_file}")
+    except Exception as e:
+        print(f"[INFO] Could not save token file: {e}")
 
 
 if __name__ == '__main__':
