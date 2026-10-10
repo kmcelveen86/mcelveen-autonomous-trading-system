@@ -81,7 +81,6 @@ READY FOR PAYLINQ Q2 2027 RIA LAUNCH
 import json
 import boto3
 import requests
-import base64
 import os
 import random
 from datetime import datetime, timedelta
@@ -885,10 +884,13 @@ def refresh_schwab_access_token():
         refresh_token = get_refresh_token_from_dynamodb()
 
         url = "https://api.schwabapi.com/v1/oauth/token"
-        credentials = f"{SCHWAB_CLIENT_ID}:{SCHWAB_CLIENT_SECRET}"
-        encoded_credentials = base64.b64encode(credentials.encode()).decode()
-        headers = {'Authorization': f'Basic {encoded_credentials}', 'Content-Type': 'application/x-www-form-urlencoded'}
-        data = {'grant_type': 'refresh_token', 'refresh_token': refresh_token}
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        data = {
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh_token,
+            'client_id': SCHWAB_CLIENT_ID,
+            'client_secret': SCHWAB_CLIENT_SECRET
+        }
         response = requests.post(url, headers=headers, data=data, timeout=10)
 
         if response.status_code == 200:
