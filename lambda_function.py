@@ -362,7 +362,7 @@ PORTFOLIO CONSTRAINTS:
                 response_text = block.text
                 break
 
-        # Log cache metrics for monitoring
+        # Log cache metrics for CIO monitoring
         if ENABLE_CACHE and hasattr(response, 'usage'):
             cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0)
             cache_read_tokens = getattr(response.usage, 'cache_read_input_tokens', 0)
@@ -370,12 +370,12 @@ PORTFOLIO CONSTRAINTS:
             output_tokens = getattr(response.usage, 'output_tokens', 0)
 
             if cache_creation_tokens > 0:
-                print(f"[CACHE] WRITE - Created cache with {cache_creation_tokens} tokens (system prompt cached)")
+                print(f"[CACHE] CIO WRITE - Created cache with {cache_creation_tokens} tokens (CIO system prompt cached for 5 min)")
             elif cache_read_tokens > 0:
                 cache_hit_savings = cache_read_tokens * 0.9  # 90% cost reduction on cached tokens
-                print(f"[CACHE] HIT - Read {cache_read_tokens} tokens from cache (saved ~${cache_hit_savings * 0.000001:.4f})")
+                print(f"[CACHE] CIO HIT - Read {cache_read_tokens} tokens from cache (saved ~${cache_hit_savings * 0.000001:.4f})")
 
-            print(f"[TOKENS] Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
+            print(f"[CIO TOKENS] Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
 
         # Parse response (DEFENSIVE PARSING - FIX v3.0.31 #3)
         # Handles incomplete/out-of-order recommendation blocks gracefully
@@ -1409,10 +1409,34 @@ def get_claude_autonomous_decision(market_overview, top_performers, bond_opportu
     """
     Claude autonomous decision engine with BUY_MORE capability.
 
-    - Analyzes market data, macro regime, CIO thesis, and portfolio state
-    - PM directive controls diversification: HOLD/BUY allows BUY_MORE; ROTATE/SELL forces new holdings
-    - Returns: (symbol, asset_class, price, rationale) for Claude's top recommendation
-    - Smart exclusion: Intelligently filters holdings based on PM action to enable or prevent concentration
+    ═══════════════════════════════════════════════════════════════════
+    ROLES & DIRECTIVES:
+    ═══════════════════════════════════════════════════════════════════
+    • CIO (Chief Investment Officer): Macro analysis & thesis setting
+      → Defined in chief_investment_officer_analysis() function
+      → Output: Regime, rates, appetite, thesis, conviction
+
+    • PM (Portfolio Manager): THIS FUNCTION - Asset allocation & selection
+      → Analyzes CIO thesis + market opportunities
+      → Respects PM directives (BUY, SELL, ROTATE, HOLD)
+      → Uses cache_control for 90% cost reduction
+      → Output: Best single asset pick aligned to CIO thesis + PM directive
+
+    • RM (Risk Manager): Applied in check_guardrails() function
+      → Validates trade size, concentration limits, daily loss caps
+      → Enforces position limits per asset class
+      → Output: APPROVED/REJECTED with guardrail violations
+
+    CACHING BEHAVIOR:
+    - System prompt cached for 5 minutes (ephemeral cache)
+    - ~90% token savings on system prompt (~1,200 tokens)
+    - Cache HIT on subsequent calls within 5-min window
+    - Cache stats logged to CloudWatch for monitoring
+
+    DECISION FRAMEWORK:
+    1. CIO sets regime, thesis, confidence → passed in macro_data
+    2. PM selects best asset → respects PM directive from portfolio_manager_decision()
+    3. RM validates position sizing → enforced in check_guardrails()
     """
     try:
         if not CLAUDE_API_KEY:
@@ -1593,7 +1617,62 @@ PRICE: [best estimate of current price]
 RATIONALE: [one sentence why this is best for current conditions]
 """
 
-        response = client.messages.create(model=model, max_tokens=300, messages=[{'role': 'user', 'content': prompt}])
+        # Build system message with PM context and optional cache control
+        pm_system = f"""You are the Portfolio Manager in McElveen Autonomous Trading System.
+
+Your role: Select the SINGLE BEST asset allocation decision given:
+- CIO thesis and confidence (from Chief Investment Officer)
+- PM directive on diversification/rotation (from portfolio analysis)
+- Current market opportunities and portfolio state
+
+CRITICAL CONSTRAINTS (enforced by Risk Manager later):
+- Respect position size limit: ${trade_size:.2f}
+- Respect concentration limit: No single asset >25% portfolio
+- Respect sector signal: {macro_data.get('sector_signal', 'BALANCED')}
+- Respect risk appetite: {macro_data.get('risk_appetite', 'BALANCED')} for {macro_data.get('risk_rating', 'MEDIUM')} environment
+
+DECISION PROCESS:
+1. **CIO directive first**: Thesis = "{macro_data.get('thesis', '')}" with confidence {macro_data.get('thesis_confidence', 5)}/10
+2. **PM directive second**: {pm_directive[3] if pm_directive else 'No PM directive - select best opportunity'}
+3. **Risk guardrails**: RM will validate position size, concentration, and daily loss limits
+
+OUTPUT: Single best pick for current conditions"""
+
+        # Prepare system message with cache control if enabled
+        if ENABLE_CACHE:
+            system_message = [
+                {
+                    'type': 'text',
+                    'text': pm_system,
+                    'cache_control': {'type': 'ephemeral'}
+                }
+            ]
+            print(f"[PM] Token caching ENABLED - using ephemeral cache for Portfolio Manager decision prompt")
+        else:
+            system_message = pm_system
+            print(f"[PM] Token caching DISABLED - standard API call")
+
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=300,
+            system=system_message,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+
+        # Log cache metrics for Portfolio Manager
+        if ENABLE_CACHE and hasattr(response, 'usage'):
+            cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0)
+            cache_read_tokens = getattr(response.usage, 'cache_read_input_tokens', 0)
+            input_tokens = getattr(response.usage, 'input_tokens', 0)
+            output_tokens = getattr(response.usage, 'output_tokens', 0)
+
+            if cache_creation_tokens > 0:
+                print(f"[CACHE] PM WRITE - Created cache with {cache_creation_tokens} tokens (Portfolio Manager prompt cached)")
+            elif cache_read_tokens > 0:
+                cache_hit_savings = cache_read_tokens * 0.9
+                print(f"[CACHE] PM HIT - Read {cache_read_tokens} tokens from cache (saved ~${cache_hit_savings * 0.000001:.4f})")
+
+            print(f"[PM TOKENS] Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
 
         response_text = ""
         for block in response.content:
