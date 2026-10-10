@@ -3,9 +3,17 @@ McElveen Autonomous Forex Trading System
 Consolidated Lambda Function (v3.0.36)
 
 Merges Phase 1A (Router/Macro Analysis) + Phase 1B (Execution) into single handler
-Triggered by EventBridge every 5 minutes during forex hours
-Uses Claude Sonnet 5 with prompt caching for macro analysis
-Executes complete trading workflow: analysis → execution → journaling → metrics
+
+EXECUTION SCHEDULE:
+- EventBridge Trigger: rate(5 minutes) - runs continuously, 24/7
+- Trading Hours Check: Lambda validates time internally
+- Active Hours: Sunday 5:00 PM ET through Friday 5:00 PM ET
+- Idle Hours: Saturday + Friday 5:00 PM ET - Sunday 5:00 PM ET (returns early, no cost)
+
+ANALYSIS & EXECUTION:
+- Uses Claude Sonnet 5 with prompt caching for macro analysis
+- Prompt caching: ~90% token savings, ~$2.80/month cost
+- Executes complete trading workflow: analysis → execution → journaling → metrics
 """
 
 import json
@@ -625,14 +633,29 @@ class ForexExecutionOrchestrator:
 def lambda_handler(event, context):
     """
     Main Lambda handler - consolidated Phase 1A + 1B
-    Triggered by EventBridge every 15 minutes during forex hours
+
+    Triggered by EventBridge every 5 minutes (rate(5 minutes))
+    Internal time check ensures trading only occurs Sun 5 PM - Fri 5 PM ET
+
+    Execution flow:
+    1. Check current ET time and determine trading mode
+    2. Return early if outside forex hours (no cost)
+    3. Fetch macro analysis via Claude Sonnet 5 (with caching)
+    4. Execute recommended trades via Schwab API
+    5. Log trades to DynamoDB
+    6. Publish metrics to CloudWatch
     """
 
     try:
+        # ====== HYBRID EXECUTION PATTERN ======
+        # EventBridge runs this Lambda every 5 minutes (24/7)
+        # This time check ensures trading only during forex hours
+        # Outside trading hours: returns early (minimal cost)
+
         # Get current ET time
         et_hour, et_minute, weekday = get_current_et_time()
 
-        # Determine trading mode
+        # Determine trading mode (checks ET time against forex hours)
         trading_mode = get_trading_mode_for_time(et_hour, et_minute, weekday)
 
         # Initialize response
@@ -644,10 +667,12 @@ def lambda_handler(event, context):
             'weekday': weekday,
         }
 
-        # Only trade during forex hours
+        # ====== EARLY EXIT IF OUTSIDE FOREX HOURS ======
+        # Lambda runs every 5 minutes, but only executes trades during:
+        # Sunday 5:00 PM ET through Friday 5:00 PM ET
         if trading_mode != TradingMode.FOREX_TRADING:
-            response['message'] = 'Outside forex trading hours'
-            response['body'] = {'status': 'NO_TRADE', 'reason': 'Trading mode not FOREX_TRADING'}
+            response['message'] = 'Outside forex trading hours - returning early'
+            response['body'] = {'status': 'NO_TRADE', 'reason': 'Not within forex trading window (Sun 5 PM - Fri 5 PM ET)'}
             return response
 
         # ====== PHASE 1A: MACRO ANALYSIS (Claude Sonnet 5 with Caching) ======
