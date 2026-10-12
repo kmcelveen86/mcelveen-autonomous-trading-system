@@ -133,6 +133,21 @@ SECTOR_LIMITS_BY_STAGE = {
     'GROWTH': {'max_nav': 500, 'limit_pct': 0.30},    # $50-$500: 30% (balanced)
     'MATURE': {'max_nav': float('inf'), 'limit_pct': 0.25}  # $500+: 25% (institutional)
 }
+
+TRADING_MODES = {
+    'THESIS_BASED': {
+        'sector_limit_mult': 1.0,      # Use standard tiered limits
+        'max_daily_trades': 4,
+        'hold_period_days': 30,
+        'description': 'Buy-and-hold thesis with organic growth'
+    },
+    'AGGRESSIVE_ROTATION': {
+        'sector_limit_mult': 1.25,     # Relax sector limits by 25% (40%→50%, 30%→37.5%, 25%→31%)
+        'max_daily_trades': 8,
+        'hold_period_days': 1,
+        'description': 'Active daily rebalancing without deposits'
+    }
+}
 # FIX v3.0.31 #5: PORTFOLIO_DRAWDOWN_LIMIT_PCT for recovery buying during drawdown phase
 # - Oct 8, 2026: Adjusted from 0.15 (-15%) to 0.35 (-35%) to enable "buy the dip" strategy
 # - Allows CIO to make recommendations when portfolio is down 35% (recovery opportunity)
@@ -497,20 +512,73 @@ PORTFOLIO CONSTRAINTS:
 # MARKET DATA - COMPLETE UNIVERSE
 # =====================================================================
 
-def get_sector_limit(portfolio_value):
+def detect_trading_mode(dynamodb_client, account_hash):
     """
-    Determine sector exposure limit based on portfolio stage (v3.0.34 CIO decision).
+    Detect if deposits have occurred in last 7 days.
+    Returns: 'THESIS_BASED' (deposits active) or 'AGGRESSIVE_ROTATION' (no deposits)
 
-    MICRO-CAP ($0-$50): 40% - Growth phase, allow capital deployment
-    GROWTH ($50-$500): 30% - Balanced concentration control
-    MATURE ($500+): 25% - Full institutional discipline
+    v3.0.35 CIO adaptive strategy: Auto-switch modes based on deposit activity
     """
+    try:
+        table = dynamodb_client.Table(TRADE_JOURNAL_TABLE)
+        seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+
+        # Scan trade journal for deposits in last 7 days
+        response = table.scan(
+            FilterExpression='#acc = :account_hash AND #ts > :seven_days_ago AND #act = :deposit',
+            ExpressionAttributeNames={
+                '#acc': 'account_hash',
+                '#ts': 'timestamp',
+                '#act': 'action'
+            },
+            ExpressionAttributeValues={
+                ':account_hash': account_hash,
+                ':seven_days_ago': seven_days_ago,
+                ':deposit': 'DEPOSIT'
+            }
+        )
+
+        deposits_found = response.get('Count', 0) > 0
+        mode = 'THESIS_BASED' if deposits_found else 'AGGRESSIVE_ROTATION'
+
+        print(f"[MODE_DETECT] Last 7 days: {response.get('Count', 0)} deposits → {mode} mode")
+        return mode
+
+    except Exception as e:
+        print(f"[MODE_DETECT] ⚠️ Error detecting deposits: {e}, defaulting to THESIS_BASED")
+        return 'THESIS_BASED'  # Default to conservative mode
+
+
+def get_sector_limit(portfolio_value, trading_mode='THESIS_BASED'):
+    """
+    Determine sector exposure limit based on portfolio stage (v3.0.35 CIO decision).
+    Applies mode-based multiplier for flexible trading strategies.
+
+    MICRO-CAP ($0-$50): 40% base - Growth phase, allow capital deployment
+    GROWTH ($50-$500): 30% base - Balanced concentration control
+    MATURE ($500+): 25% base - Full institutional discipline
+
+    Mode multipliers applied:
+    - THESIS_BASED (deposits active): 1.0x multiplier
+    - AGGRESSIVE_ROTATION (no deposits): 1.25x multiplier
+    """
+    # Get base limit by portfolio stage
+    base_limit = SECTOR_EXPOSURE_LIMIT_PCT
+    stage_name = 'DEFAULT'
+
     for stage, config in SECTOR_LIMITS_BY_STAGE.items():
         if portfolio_value <= config['max_nav']:
-            limit = config['limit_pct']
-            print(f"[GUARDRAILS] Sector limit: {limit*100:.0f}% ({stage} stage, NAV ${portfolio_value:.2f})")
-            return limit
-    return SECTOR_EXPOSURE_LIMIT_PCT  # Fallback
+            base_limit = config['limit_pct']
+            stage_name = stage
+            break
+
+    # Apply mode multiplier
+    mode_config = TRADING_MODES.get(trading_mode, TRADING_MODES['THESIS_BASED'])
+    mode_mult = mode_config['sector_limit_mult']
+    adjusted_limit = min(base_limit * mode_mult, 1.0)  # Cap at 100%
+
+    print(f"[GUARDRAILS] Sector limit: {adjusted_limit*100:.0f}% ({stage_name} stage {base_limit*100:.0f}% base × {mode_mult}x {trading_mode} mode, NAV ${portfolio_value:.2f})")
+    return adjusted_limit
 
 
 def build_sector_mapping():
@@ -1836,8 +1904,8 @@ OUTPUT: Single best pick for current conditions"""
 # =====================================================================
 
 def check_guardrails(symbol, trade_size, portfolio_value, trades_today, max_daily_trades,
-                    holdings, asset_class, metrics):
-    """Check 8-level guardrails before execution."""
+                    holdings, asset_class, metrics, trading_mode='THESIS_BASED'):
+    """Check 8-level guardrails before execution (v3.0.35 with adaptive mode support)."""
 
     # G1: Daily frequency cap
     if trades_today >= max_daily_trades:
@@ -1866,13 +1934,14 @@ def check_guardrails(symbol, trade_size, portfolio_value, trades_today, max_dail
         if (options_exposure + trade_size) > (portfolio_value * OPTIONS_EXPOSURE_LIMIT_PCT):
             return False, f"Options exposure limit exceeded"
 
-    # G3: Sector concentration limit (FIXED v3.0.33, TIERED v3.0.34)
+    # G3: Sector concentration limit (FIXED v3.0.33, TIERED v3.0.34, ADAPTIVE v3.0.35)
     # Now checks individual sectors (TECHNOLOGY, FINANCE, etc) instead of lumping all stocks
     # Uses tiered limits based on portfolio stage (40% micro, 30% growth, 25% mature)
+    # Mode-adaptive multipliers: 1.0x THESIS_BASED (deposits), 1.25x AGGRESSIVE_ROTATION (no deposits)
     if asset_class == 'STOCK':
         sector_map = build_sector_mapping()
         target_sector = sector_map.get(symbol, 'OTHER')  # Get sector for this symbol
-        sector_limit = get_sector_limit(portfolio_value)  # Get tiered limit based on NAV
+        sector_limit = get_sector_limit(portfolio_value, trading_mode)  # Get adaptive limit based on NAV and mode
 
         # Sum exposure in this specific sector only
         sector_exposure = 0
@@ -3307,6 +3376,11 @@ def lambda_handler(event, context):
         metrics = PortfolioMetrics(cash, holdings, previous_nav)
         print(f"[METRICS] NAV: ${metrics.nav:.2f} | P&L: ${metrics.unrealized_pnl:.2f} ({metrics.unrealized_pnl_pct:.2f}%)")
 
+        # ===== STEP 5b: DETECT TRADING MODE (NEW v3.0.35) =====
+        print("\n[STEP 5b] Detecting trading mode based on deposit activity...")
+        trading_mode = detect_trading_mode(dynamodb_client, account_hash)
+        print(f"[MODE] Detected: {trading_mode} ({TRADING_MODES[trading_mode]['description']})")
+
         # ===== STEP 3: CHIEF INVESTMENT OFFICER ANALYSIS =====
         # CRITICAL FIX v3.0.31 #4: CIO RUNS AFTER STEP 5 (moved from original STEP 3 position)
         # REASON: CIO needs portfolio_state data (holdings, metrics, available_cash) which is built in STEP 5
@@ -3419,7 +3493,7 @@ def lambda_handler(event, context):
         # ===== STEP 9: GUARDRAILS (7 LEVELS) =====
         print("\n[STEP 9] Checking guardrails...")
         guardrails_pass, guardrail_msg = check_guardrails(
-            symbol, trade_size, portfolio_value, trades_today, max_daily_trades, holdings, asset_class, metrics
+            symbol, trade_size, portfolio_value, trades_today, max_daily_trades, holdings, asset_class, metrics, trading_mode
         )
 
         if not guardrails_pass:
