@@ -1,6 +1,6 @@
 """
 ================================================================================
-McElveen Autonomous Trading System - v3.0.37 COMPLETE PRODUCTION (Schwab API Fix + Defensive Portfolio Manager)
+McElveen Autonomous Trading System - v3.0.38 COMPLETE PRODUCTION (Schwab Market Data Response Parse Fix)
 ================================================================================
 
 THREE-AGENT AI ARCHITECTURE:
@@ -81,6 +81,18 @@ CRITICAL FIXES v3.0.37:
    └─ IMPACT: System continues trading even when market data temporarily unavailable; prevents fatal Lambda termination
    └─ LOCATION: Lines 2253-2259 in portfolio_manager_decision() function
 
+CRITICAL FIXES v3.0.38:
+✅ FIX #16 (v3.0.38 FIX #1): Correct Schwab Market Data API Response Parsing
+   └─ ROOT CAUSE: Code expected response nested under 'quoteData' key, but Schwab API returns symbols at root level
+   └─ SYMPTOM: API returned HTTP 200 but code parsed 0 quotes; market data functions returned empty results
+   └─ ACTUAL API RESPONSE: { "AAPL": { "quote": { "regularMarketPrice": ... } }, "BAC": {...} }
+   └─ INCORRECT PARSING: quote_data = data.get('quoteData', {}) ← This key doesn't exist!
+   └─ SOLUTION: Access symbols directly from root; extract quote data from symbol_data['quote']
+   └─ UPDATED: 5 functions (get_top_performers, get_market_overview, get_fixed_income_opportunities, get_mutual_fund_universe, get_comprehensive_stock_universe, validate_symbol_liquidity)
+   └─ FIELD MAPPING FIX: Changed regularMarketChangePercent → netPercentChange (actual field in API response)
+   └─ FALLBACK STRATEGY: Use lastPrice if regularMarketPrice unavailable (for symbols without live pricing)
+   └─ IMPACT: Market data now returns actual quotes with real symbols; system builds meaningful portfolios
+
 TRADE LIMITS (AGGRESSIVE - Option B):
 - VIX < 12: 5 trades/day (claude-opus-5-5)
 - VIX 12-20: 4 trades/day (claude-sonnet-5)
@@ -122,7 +134,7 @@ from anthropic import Anthropic
 import math
 import hashlib
 
-print("[INIT] McElveen Autonomous Trading System v3.0.37 - HARDENED PRODUCTION")
+print("[INIT] McElveen Autonomous Trading System v3.0.38 - MARKET DATA PARSING FIX")
 print("[INIT] ✅ FIX #1: Hard halt when trade_size = 0")
 print("[INIT] ✅ FIX #2: Hard halt when option_buying_power < 0")
 print("[INIT] ✅ FIX #3: Account health gate before trading")
@@ -673,8 +685,9 @@ def get_market_overview(access_token):
         vix = 15.0
         if vix_response.status_code == 200:
             vix_data = vix_response.json()
-            if '^VIX' in vix_data.get('quoteData', {}):
-                vix = float(vix_data['quoteData']['^VIX'].get('regularMarketPrice', 15.0))
+            if '^VIX' in vix_data:
+                vix_quote = vix_data['^VIX'].get('quote', {})
+                vix = float(vix_quote.get('regularMarketPrice') or vix_quote.get('lastPrice', 15.0))
 
         treasuries_url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols=TLT,IEF,SHY&fields=quote"
         treasuries_response = requests.get(treasuries_url, headers=headers, timeout=10)
@@ -682,8 +695,9 @@ def get_market_overview(access_token):
         if treasuries_response.status_code == 200:
             t_data = treasuries_response.json()
             for symbol in ['TLT', 'IEF', 'SHY']:
-                if symbol in t_data.get('quoteData', {}):
-                    price = float(t_data['quoteData'][symbol].get('regularMarketPrice', 100.0))
+                if symbol in t_data:
+                    symbol_quote = t_data[symbol].get('quote', {})
+                    price = float(symbol_quote.get('regularMarketPrice') or symbol_quote.get('lastPrice', 100.0))
                     yields[symbol] = price
 
         sectors_url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols=XLK,XLE,XLV,XLF,XLY,XLI,XLRE,XLU&fields=quote"
@@ -692,8 +706,9 @@ def get_market_overview(access_token):
         if sectors_response.status_code == 200:
             s_data = sectors_response.json()
             for symbol in ['XLK', 'XLE', 'XLV', 'XLF', 'XLY', 'XLI', 'XLRE', 'XLU']:
-                if symbol in s_data.get('quoteData', {}):
-                    change_pct = float(s_data['quoteData'][symbol].get('regularMarketChangePercent', 0))
+                if symbol in s_data:
+                    symbol_quote = s_data[symbol].get('quote', {})
+                    change_pct = float(symbol_quote.get('netPercentChange', 0))
                     sector_performance[symbol] = change_pct
 
         market_overview = {
@@ -733,14 +748,17 @@ def get_top_performers(access_token):
 
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #1: Schwab API response has symbols at root level, not nested under quoteData
+            # Response structure: { "AAPL": { "quote": { "regularMarketPrice": ... } }, "BAC": {...} }
+            quote_data = data  # Symbols are directly at root level
             print(f"[PERFORMERS] API returned {len(quote_data)} quotes")
 
             for symbol in universe:
                 if symbol in quote_data:
-                    q = quote_data[symbol]
-                    price = float(q.get('regularMarketPrice', 100.0))
-                    change_pct = float(q.get('regularMarketChangePercent', 0.0))
+                    symbol_data = quote_data[symbol]
+                    q = symbol_data.get('quote', {})  # Quote data is nested under 'quote' key
+                    price = float(q.get('regularMarketPrice') or q.get('lastPrice', 100.0))
+                    change_pct = float(q.get('netPercentChange', 0.0))
                     volume = int(q.get('totalVolume', 0))
 
                     if symbol in ['TLT', 'IEF', 'AGG', 'LQD', 'HYG']:
@@ -811,11 +829,12 @@ def get_fixed_income_opportunities(access_token):
 
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #2: Symbols are at root level, quote data nested under 'quote' key
             for symbol, info in bonds.items():
-                if symbol in quote_data:
-                    q = quote_data[symbol]
-                    price = float(q.get('regularMarketPrice', 100.0))
+                if symbol in data:
+                    symbol_data = data[symbol]
+                    q = symbol_data.get('quote', {})
+                    price = float(q.get('regularMarketPrice') or q.get('lastPrice', 100.0))
                     yield_pct = 100.0 / price if price > 0 else 0
                     bond_opportunities.append({
                         'symbol': symbol,
@@ -854,11 +873,12 @@ def get_mutual_fund_universe(access_token):
 
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #3: Symbols are at root level, quote data nested under 'quote' key
             for symbol, info in funds.items():
-                if symbol in quote_data:
-                    q = quote_data[symbol]
-                    price = float(q.get('regularMarketPrice', 100.0))
+                if symbol in data:
+                    symbol_data = data[symbol]
+                    q = symbol_data.get('quote', {})
+                    price = float(q.get('regularMarketPrice') or q.get('lastPrice', 100.0))
                     fund_opportunities.append({
                         'symbol': symbol,
                         'name': info['name'],
@@ -995,16 +1015,17 @@ def get_comprehensive_stock_universe(access_token):
         stock_universe = {}
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #4: Symbols are at root level, quote data nested under 'quote' key
 
             # Organize by sector with current prices
             for sector, symbols in universe_by_sector.items():
                 stock_universe[sector] = []
                 for symbol in symbols:
-                    if symbol in quote_data:
-                        q = quote_data[symbol]
-                        price = float(q.get('regularMarketPrice', 100.0))
-                        change_pct = float(q.get('regularMarketChangePercent', 0.0))
+                    if symbol in data:
+                        symbol_data = data[symbol]
+                        q = symbol_data.get('quote', {})
+                        price = float(q.get('regularMarketPrice') or q.get('lastPrice', 100.0))
+                        change_pct = float(q.get('netPercentChange', 0.0))
                         volume = int(q.get('totalVolume', 0))
 
                         stock_universe[sector].append({
@@ -1559,11 +1580,12 @@ def validate_symbol_liquidity(access_token, symbol, min_volume=100000):
 
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #5: Symbols are at root level, quote data nested under 'quote' key
 
-            if symbol in quote_data:
-                q = quote_data[symbol]
-                price = float(q.get('regularMarketPrice', 0))
+            if symbol in data:
+                symbol_data = data[symbol]
+                q = symbol_data.get('quote', {})
+                price = float(q.get('regularMarketPrice') or q.get('lastPrice', 0))
                 volume = int(q.get('totalVolume', 0))
 
                 if price > 0 and volume >= min_volume:
