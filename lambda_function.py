@@ -2508,18 +2508,21 @@ def execute_trade_on_schwab(access_token, symbol, trade_size_dollars, account_ha
         url = f"{SCHWAB_BASE_URL}/accounts/{account_hash}/orders"
         quantity_in_shares = trade_size_dollars / price if price > 0 else 0
 
-        # CTO EXECUTIVE FIX: Round BUY quantities to whole shares to prevent fractional accumulation
-        # Previous bug: 0.0263 share fractionals couldn't be sold back (Schwab rejects < 0.001)
-        # Solution: Buy whole shares only; if can't afford 1 share, don't trade
-        quantity_in_shares_raw = quantity_in_shares
-        quantity_in_shares = int(quantity_in_shares)  # Round DOWN to whole shares
+        # FRACTIONAL SHARE FIX v3.0.32: Allow fractional shares down to Schwab minimum (0.001)
+        # Previous issue: Some very small fractionals (0.0001) couldn't be sold
+        # Solution: Allow fractional >= 0.001 (Schwab's minimum), block only if below that
+        quantity_in_shares = round(quantity_in_shares, 4)  # Round to 4 decimals for Schwab precision
+
+        if quantity_in_shares < 0.001 and quantity_in_shares > 0:
+            print(f"[ERROR] ❌ Fractional too small: {quantity_in_shares:.6f} shares < 0.001 minimum @ ${price:.2f}")
+            return False, None, f"Fractional {quantity_in_shares:.6f} < 0.001 minimum"
 
         if quantity_in_shares == 0:
-            print(f"[ERROR] ❌ Insufficient capital: ${trade_size_dollars:.2f} < 1 share @ ${price:.2f}")
-            return False, None, "Trade size insufficient for 1 share"
+            print(f"[ERROR] ❌ Insufficient capital: ${trade_size_dollars:.2f} < ${price * 0.001:.4f} (minimum fractional)")
+            return False, None, "Trade size insufficient for 0.001 share minimum"
 
-        if quantity_in_shares_raw != quantity_in_shares:
-            print(f"[EXECUTE] Rounding {quantity_in_shares_raw:.4f} → {quantity_in_shares} whole shares (CTO fix: prevents fractional accumulation)")
+        if quantity_in_shares < 1.0:
+            print(f"[EXECUTE] Fractional purchase: {quantity_in_shares:.4f} shares of {symbol} @ ${price:.2f} (${trade_size_dollars:.2f} allocated)")
 
         print(f"[EXECUTE] {symbol} | {quantity_in_shares} shares @ ${price:.2f}")
 
@@ -3434,19 +3437,21 @@ def lambda_handler(event, context):
 
             if sell_quantity > 0:
                 # Execute sell and buy
-                # CTO FIX: Round new purchase quantity to whole shares to avoid fractional accumulation
+                # FRACTIONAL SHARE FIX: Allow fractional shares (Schwab supports 0.001+ minimum)
                 new_quantity_raw = trade_size / price if price > 0 else 0
-                new_quantity = int(new_quantity_raw)  # Round DOWN to whole shares
+                new_quantity = round(new_quantity_raw, 4)  # Allow fractional shares to 4 decimals
 
-                if new_quantity == 0 and new_quantity_raw > 0:
-                    # If rounding down to 0, don't execute (not enough capital for 1 share)
-                    print(f"[PORTFOLIO_MANAGER] 🟠 SELL_AND_BUY blocked: Insufficient capital for 1 share of {symbol} (${trade_size:.2f})")
+                if new_quantity < 0.001 and new_quantity > 0:
+                    # If fractional is too small (< 0.001), Schwab minimum, don't execute
+                    print(f"[PORTFOLIO_MANAGER] 🟠 SELL_AND_BUY blocked: Fractional share too small ({new_quantity:.6f} < 0.001 minimum) for {symbol}")
                     log_portfolio_metrics(metrics)
                     send_cloudwatch_metric('TradesBlocked', 1)
                     return {
                         'statusCode': 202,
-                        'body': json.dumps({'result': 'BLOCKED', 'reason': f'Insufficient capital: ${trade_size:.2f} < 1 share @ ${price:.2f}'})
+                        'body': json.dumps({'result': 'BLOCKED', 'reason': f'Fractional too small: {new_quantity:.6f} < 0.001 minimum'})
                     }
+
+                print(f"[PORTFOLIO_MANAGER] ✅ Executing fractional buy: {new_quantity:.4f} shares of {symbol} @ ${price:.2f} (${trade_size:.2f} allocated)")
 
                 rebalance_success, rebalance_msg = execute_rebalance(
                     access_token, pm_target_symbol, sell_quantity, account_hash,
