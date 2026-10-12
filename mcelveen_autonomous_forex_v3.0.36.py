@@ -43,7 +43,8 @@ ENABLE_CACHE = os.environ.get('ENABLE_CACHE', 'true').lower() == 'true'
 
 # Schwab API endpoints
 SCHWAB_BASE_URL = 'https://api.schwabapi.com/trader/v1'
-SCHWAB_QUOTE_ENDPOINT = f'{SCHWAB_BASE_URL}/marketdata/quotes'
+SCHWAB_MARKETDATA_URL = 'https://api.schwabapi.com/marketdata/v1'  # FIX v3.0.37 #1: Separate endpoint for market data (HTTP 200, not 404)
+SCHWAB_QUOTE_ENDPOINT = f'{SCHWAB_MARKETDATA_URL}/quotes'  # FIX v3.0.37 #1: Uses /marketdata/v1/quotes (not /trader/v1/marketdata/quotes)
 SCHWAB_ACCOUNTS_ENDPOINT = f'{SCHWAB_BASE_URL}/accounts'
 SCHWAB_ORDERS_ENDPOINT = f'{SCHWAB_BASE_URL}/accounts/{SCHWAB_ACCOUNT_ID}/orders'
 
