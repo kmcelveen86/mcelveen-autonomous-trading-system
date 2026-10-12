@@ -219,20 +219,24 @@ class PortfolioMetrics:
         self.holdings = holdings
         self.timestamp = datetime.utcnow().isoformat() + 'Z'
 
+        # Helper to get entry price (handle both snapshot 'cost_basis' and trade journal 'entry_price')
+        def get_entry_price(h):
+            return h.get('entry_price') or h.get('cost_basis', 0)
+
         # Calculate current values
-        self.position_value = sum(h['quantity'] * h.get('current_price', h['entry_price'])
+        self.position_value = sum(h['quantity'] * h.get('current_price', get_entry_price(h))
                                  for h in holdings.values())
         self.nav = cash + self.position_value
         self.cash_pct = (cash / self.nav * 100) if self.nav > 0 else 100
 
         # Calculate performance metrics
-        self.cost_basis = sum(h['quantity'] * h['entry_price'] for h in holdings.values())
+        self.cost_basis = sum(h['quantity'] * get_entry_price(h) for h in holdings.values())
         self.unrealized_pnl = self.position_value - self.cost_basis
         self.unrealized_pnl_pct = (self.unrealized_pnl / self.cost_basis * 100) if self.cost_basis > 0 else 0
 
         # Volatility metrics
         self.num_holdings = len(holdings)
-        self.largest_position_pct = (max((h['quantity'] * h.get('current_price', h['entry_price']) / self.nav * 100
+        self.largest_position_pct = (max((h['quantity'] * h.get('current_price', get_entry_price(h)) / self.nav * 100
                                          for h in holdings.values()), default=0))
 
         # Asset class allocation
