@@ -1275,6 +1275,7 @@ def read_positions_from_snapshot():
     """
     FIX #43: Read positions from latest POSITIONS_SNAPSHOT
     This is the fallback when Schwab API is unavailable
+    Returns tuple: (holdings, snapshot_age_hours, source)
     """
     try:
         table = DYNAMODB.Table(POSITIONS_SNAPSHOT_TABLE)
@@ -1283,7 +1284,8 @@ def read_positions_from_snapshot():
 
         if not response.get('Items'):
             print(f"[POSITIONS] ⚠️ No snapshot found, falling back to trade journal")
-            return read_positions_from_trade_journal()
+            holdings = read_positions_from_trade_journal()
+            return holdings, float('inf'), 'TRADE_JOURNAL'
 
         # Sort by SnapshotTime (most recent first) and get the latest
         items = sorted(response['Items'], key=lambda x: x.get('SnapshotTime', ''), reverse=True)
@@ -1291,11 +1293,20 @@ def read_positions_from_snapshot():
         holdings_json = latest_snapshot.get('Holdings', '{}')
         holdings = json.loads(holdings_json)
 
-        print(f"[POSITIONS] Read {len(holdings)} holdings from snapshot table")
-        return holdings
+        # Calculate snapshot age
+        snapshot_time_str = latest_snapshot.get('SnapshotTime', '')
+        try:
+            snapshot_time = datetime.fromisoformat(snapshot_time_str.replace('Z', '+00:00'))
+            age_hours = (datetime.utcnow() - snapshot_time.replace(tzinfo=None)).total_seconds() / 3600
+        except:
+            age_hours = float('inf')
+
+        print(f"[POSITIONS] Read {len(holdings)} holdings from snapshot table (age: {age_hours:.1f}h)")
+        return holdings, age_hours, 'SNAPSHOT'
     except Exception as e:
         print(f"[POSITIONS] ⚠️ Snapshot read failed: {e}, falling back to trade journal")
-        return read_positions_from_trade_journal()
+        holdings = read_positions_from_trade_journal()
+        return holdings, float('inf'), 'TRADE_JOURNAL'
 
 
 def read_positions_from_trade_journal():
@@ -1341,9 +1352,10 @@ def read_positions_from_trade_journal():
 
 def read_positions_from_schwab_api(access_token, account_hash):
     """
-    FIX #42 + FIX #43: Fetch real holdings from Schwab /positions endpoint
+    FIX #42 + FIX #43 + v3.0.36: Fetch real holdings from Schwab /positions endpoint
     and sync to snapshot table for accurate position tracking
     Falls back to snapshot → trade journal only if API fails
+    Returns tuple: (holdings, snapshot_age_hours, source)
     """
     try:
         headers = {'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'}
@@ -1389,8 +1401,8 @@ def read_positions_from_schwab_api(access_token, account_hash):
         # FIX #43: Sync to snapshot for next fallback
         sync_positions_to_dynamodb(holdings)
 
-        print(f"[POSITIONS] ✅ Fetched {len(holdings)} holdings from Schwab")
-        return holdings
+        print(f"[POSITIONS] ✅ Fetched {len(holdings)} holdings from Schwab (LIVE)")
+        return holdings, 0, 'SCHWAB_API'
     except Exception as e:
         print(f"[POSITIONS] ❌ Schwab API fetch failed: {e}, falling back to snapshot")
         return read_positions_from_snapshot()
@@ -3327,7 +3339,7 @@ def lambda_handler(event, context):
         account_hash = account_data.get('account_hash')
         cash = account_data.get('cash', 0)
         available_funds = account_data.get('available_funds', cash)  # FIX v3.0.16: Use available funds for trade sizing
-        holdings = read_positions_from_schwab_api(access_token, account_hash)
+        holdings, positions_age_hours, positions_source = read_positions_from_schwab_api(access_token, account_hash)
 
         # FIX #40: Log account health for diagnostics
         buying_power = account_data.get('buying_power', 0)
@@ -3348,6 +3360,44 @@ def lambda_handler(event, context):
         if not account_hash:
             print("[ERROR] Could not get account hash")
             return {'statusCode': 500, 'body': 'Account hash failed'}
+
+        # ===== STEP 4a: VALIDATE POSITIONS DATA FRESHNESS (NEW v3.0.36) =====
+        # CRITICAL: If using TRADE_JOURNAL data (last resort fallback), HALT trading
+        # This prevents selling positions that don't actually exist (e.g., IWM issue 2026-10-12)
+        print("\n[STEP 4a] Validating positions data freshness...")
+        if positions_source == 'TRADE_JOURNAL':
+            msg = f"[CRITICAL] ❌ TRADING HALTED: Cannot get current positions from Schwab API or snapshot. Using trade journal fallback (unreliable). Manual positions update required."
+            print(msg)
+            print(f"[POSITIONS_DATA] Source: {positions_source} (Age: {positions_age_hours:.1f}h)")
+            print(f"[HOLDINGS] Current: {list(holdings.keys())}")
+            send_alert_email(
+                msg + f"\n\nCurrent holdings: {list(holdings.keys())}\n\nPlease verify against actual Schwab account.",
+                "POSITIONS_DATA_STALE_HALT",
+                0,
+                "HALT",
+                True,
+                f"Positions data is stale (trade journal fallback only)",
+                None
+            )
+            return {'statusCode': 403, 'body': 'Trading halted: positions data is stale (trade journal fallback)'}
+
+        if positions_source == 'SNAPSHOT':
+            print(f"[POSITIONS_DATA] ⚠️ Using snapshot data (age: {positions_age_hours:.1f}h). Schwab API unavailable.")
+            if positions_age_hours > 24:
+                msg = f"[WARN] ❌ TRADING HALTED: Positions snapshot is {positions_age_hours:.1f}h old (>24h). Too stale. Schwab API must recover."
+                print(msg)
+                send_alert_email(
+                    msg + f"\n\nCurrent holdings: {list(holdings.keys())}\n\nPlease check Schwab API connectivity.",
+                    "POSITIONS_SNAPSHOT_STALE_HALT",
+                    0,
+                    "HALT",
+                    True,
+                    f"Positions snapshot is {positions_age_hours:.1f}h old",
+                    None
+                )
+                return {'statusCode': 403, 'body': f'Trading halted: positions snapshot is too old ({positions_age_hours:.1f}h)'}
+
+        print(f"[POSITIONS_DATA] ✅ Using {positions_source} ({positions_age_hours:.1f}h old) - Holdings: {list(holdings.keys())}")
 
         # ===== STEP 4b: CHECK FOR PENDING DEPOSITS (FIX v3.0.15 #5) =====
         print("\n[STEP 4b] Checking for pending deposits...")
