@@ -45,3 +45,6 @@ dist/
 # Logs
 *.log
 logs/
+
+# Deployment packages (can be regenerated from source)
+*.zip
