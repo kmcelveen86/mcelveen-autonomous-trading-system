@@ -512,7 +512,7 @@ PORTFOLIO CONSTRAINTS:
 # MARKET DATA - COMPLETE UNIVERSE
 # =====================================================================
 
-def detect_trading_mode(dynamodb_client, account_hash):
+def detect_trading_mode(dynamodb_resource, account_hash):
     """
     Detect if deposits have occurred in last 7 days.
     Returns: 'THESIS_BASED' (deposits active) or 'AGGRESSIVE_ROTATION' (no deposits)
@@ -520,7 +520,7 @@ def detect_trading_mode(dynamodb_client, account_hash):
     v3.0.35 CIO adaptive strategy: Auto-switch modes based on deposit activity
     """
     try:
-        table = dynamodb_client.Table(TRADE_JOURNAL_TABLE)
+        table = dynamodb_resource.Table(TRADE_JOURNAL_TABLE)
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
 
         # Scan trade journal for deposits in last 7 days
@@ -3378,7 +3378,7 @@ def lambda_handler(event, context):
 
         # ===== STEP 5b: DETECT TRADING MODE (NEW v3.0.35) =====
         print("\n[STEP 5b] Detecting trading mode based on deposit activity...")
-        trading_mode = detect_trading_mode(dynamodb_client, account_hash)
+        trading_mode = detect_trading_mode(DYNAMODB, account_hash)
         print(f"[MODE] Detected: {trading_mode} ({TRADING_MODES[trading_mode]['description']})")
 
         # ===== STEP 3: CHIEF INVESTMENT OFFICER ANALYSIS =====
