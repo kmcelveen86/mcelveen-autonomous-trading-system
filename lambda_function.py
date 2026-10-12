@@ -1,6 +1,6 @@
 """
 ================================================================================
-McElveen Autonomous Trading System - v3.0.38 COMPLETE PRODUCTION (Schwab Market Data Response Parse Fix)
+McElveen Autonomous Trading System - v3.0.39 COMPLETE PRODUCTION (Whole Shares Only - No Fractional)
 ================================================================================
 
 THREE-AGENT AI ARCHITECTURE:
@@ -93,6 +93,20 @@ CRITICAL FIXES v3.0.38:
    └─ FALLBACK STRATEGY: Use lastPrice if regularMarketPrice unavailable (for symbols without live pricing)
    └─ IMPACT: Market data now returns actual quotes with real symbols; system builds meaningful portfolios
 
+CRITICAL FIXES v3.0.39:
+✅ FIX #17 (v3.0.39 FIX #1): Eliminate fractional shares entirely — whole shares only
+   └─ ROOT CAUSE: System was creating fractional positions (e.g., 2.3 shares) for small trades
+   └─ ISSUE: Schwab MARKET orders only accept whole shares; fractional requires LIMIT orders with price
+   └─ IMPACT: Fractional positions added execution complexity, slippage risk, and API call overhead
+   └─ SOLUTION: Convert all position sizes with int() to enforce whole shares (floor the value)
+   └─ AFFECTED CODE:
+      - Line 3630: new_quantity = int(trade_size / price) ← TRADER MODE rebalance
+      - Line 3708: new_quantity = int(new_quantity_raw) ← PORTFOLIO MANAGER SELL_AND_BUY
+      - Line 2668: quantity = int(quantity) ← execute_buy_single function
+      - Line 2748: quantity_in_shares = int(trade_size_dollars / price) ← execute_trader_buy function
+   └─ ORDER TYPE CHANGE: All orders now use MARKET (never LIMIT)
+   └─ RESULT: Cleaner execution, no LIMIT price logic, consistent whole-share positions across system
+
 TRADE LIMITS (AGGRESSIVE - Option B):
 - VIX < 12: 5 trades/day (claude-opus-5-5)
 - VIX 12-20: 4 trades/day (claude-sonnet-5)
@@ -134,11 +148,11 @@ from anthropic import Anthropic
 import math
 import hashlib
 
-print("[INIT] McElveen Autonomous Trading System v3.0.38 - MARKET DATA PARSING FIX")
-print("[INIT] ✅ FIX #1: Hard halt when trade_size = 0")
-print("[INIT] ✅ FIX #2: Hard halt when option_buying_power < 0")
-print("[INIT] ✅ FIX #3: Account health gate before trading")
-print("[INIT] ✅ v3.0.28 BASE: All trading logic, portfolio manager, trader mode")
+print("[INIT] McElveen Autonomous Trading System v3.0.39 - WHOLE SHARES ONLY")
+print("[INIT] ✅ FIX #1: Enforce whole shares only (no fractional shares)")
+print("[INIT] ✅ FIX #2: Use MARKET orders exclusively (not LIMIT)")
+print("[INIT] ✅ FIX #3: int() conversion for all position sizing")
+print("[INIT] ✅ v3.0.38 BASE: Market data parsing corrected")
 print("[INIT] All systems loaded - ready for deployment")
 
 # =====================================================================
@@ -2554,9 +2568,8 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
             print(f"[VALIDATE] ⚠️ Holdings not provided, skipping sell validation")
 
         # Step 1: Sell worst performer
-        # FIX #41: Use LIMIT orders for fractional shares (Schwab API requires it)
-        # MARKET orders only accept whole shares; fractional quantities require LIMIT with price
-        sell_order_type = "LIMIT" if quantity < 1.0 else "MARKET"
+        # FIX v3.0.39: Whole shares only — always use MARKET orders
+        sell_order_type = "MARKET"
         sell_payload = {
             "orderType": sell_order_type,
             "session": "NORMAL",
@@ -2564,19 +2577,11 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
             "orderStrategyType": "SINGLE",
             "orderLegCollection": [{
                 "instruction": "SELL",
-                "quantity": round(quantity, 4) if quantity < 1.0 else int(quantity),
+                "quantity": int(quantity),
                 "quantityType": "SHARES",
                 "instrument": {"symbol": worst_symbol, "assetType": "EQUITY"}
             }]
         }
-        
-        # FIX #41: For LIMIT orders, add a conservative limit price
-        if quantity < 1.0:
-            # For fractional shares, we need to provide a price for the LIMIT order
-            # Use 99% of estimated current price to ensure execution but avoid slippage
-            estimated_price = new_price if new_price and new_price > 0 else 100.0
-            sell_payload["price"] = round(estimated_price * 0.99, 2)  # 1% below market
-            print(f"[TRADER MODE] LIMIT price set for fractional SELL: ${sell_payload['price']:.2f}")
 
         sell_url = f"{SCHWAB_BASE_URL}/accounts/{account_hash}/orders"
         headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
@@ -2605,8 +2610,8 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
         print(f"[TRADER MODE] ✅ SOLD {worst_symbol} - Order: {sell_order_id} ({sell_status})")
 
         # Step 2: Buy new opportunity
-        # FIX #41: Use LIMIT orders for fractional buys (consistent with SELL logic)
-        buy_order_type = "LIMIT" if new_quantity < 1.0 else "MARKET"
+        # FIX v3.0.39: Whole shares only — always use MARKET orders
+        buy_order_type = "MARKET"
         buy_payload = {
             "orderType": buy_order_type,
             "session": "NORMAL",
@@ -2614,18 +2619,11 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
             "orderStrategyType": "SINGLE",
             "orderLegCollection": [{
                 "instruction": "BUY",
-                "quantity": round(new_quantity, 4) if new_quantity < 1.0 else int(new_quantity),
+                "quantity": int(new_quantity),
                 "quantityType": "SHARES",
                 "instrument": {"symbol": new_symbol, "assetType": "EQUITY"}
             }]
         }
-        
-        # FIX #41: For LIMIT orders, add a conservative limit price
-        if new_quantity < 1.0:
-            # For fractional shares, we need to provide a price for the LIMIT order
-            # Use 101% of new_price to ensure execution (willing to pay slightly above market)
-            buy_payload["price"] = round(new_price * 1.01, 2)  # 1% above market for execution
-            print(f"[TRADER MODE] LIMIT price set for fractional BUY: ${buy_payload['price']:.2f}")
 
         print(f"[TRADER MODE] Posting BUY order for {new_symbol}...")
         buy_response = requests.post(sell_url, json=buy_payload, headers=headers, timeout=15)
@@ -2680,7 +2678,7 @@ def preview_order_on_schwab(access_token, symbol, quantity, account_hash, price,
             "orderLegCollection": [
                 {
                     "instruction": "BUY",
-                    "quantity": round(quantity, 4) if quantity < 1.0 else int(quantity),
+                    "quantity": int(quantity),
                     "quantityType": "SHARES",
                     "instrument": {"symbol": symbol, "assetType": "EQUITY"}
                 }
@@ -2753,21 +2751,12 @@ def execute_trade_on_schwab(access_token, symbol, trade_size_dollars, account_ha
         url = f"{SCHWAB_BASE_URL}/accounts/{account_hash}/orders"
         quantity_in_shares = trade_size_dollars / price if price > 0 else 0
 
-        # FRACTIONAL SHARE FIX v3.0.32: Allow fractional shares down to Schwab minimum (0.001)
-        # Previous issue: Some very small fractionals (0.0001) couldn't be sold
-        # Solution: Allow fractional >= 0.001 (Schwab's minimum), block only if below that
-        quantity_in_shares = round(quantity_in_shares, 4)  # Round to 4 decimals for Schwab precision
-
-        if quantity_in_shares < 0.001 and quantity_in_shares > 0:
-            print(f"[ERROR] ❌ Fractional too small: {quantity_in_shares:.6f} shares < 0.001 minimum @ ${price:.2f}")
-            return False, None, f"Fractional {quantity_in_shares:.6f} < 0.001 minimum"
+        # FIX v3.0.39: Enforce whole shares only (no fractional shares)
+        quantity_in_shares = int(quantity_in_shares)
 
         if quantity_in_shares == 0:
-            print(f"[ERROR] ❌ Insufficient capital: ${trade_size_dollars:.2f} < ${price * 0.001:.4f} (minimum fractional)")
-            return False, None, "Trade size insufficient for 0.001 share minimum"
-
-        if quantity_in_shares < 1.0:
-            print(f"[EXECUTE] Fractional purchase: {quantity_in_shares:.4f} shares of {symbol} @ ${price:.2f} (${trade_size_dollars:.2f} allocated)")
+            print(f"[ERROR] ❌ Insufficient capital: ${trade_size_dollars:.2f} @ ${price:.2f} (minimum $1 whole share)")
+            return False, None, "Trade size insufficient for 1 whole share"
 
         print(f"[EXECUTE] {symbol} | {quantity_in_shares} shares @ ${price:.2f}")
 
@@ -3366,7 +3355,7 @@ def lambda_handler(event, context):
     """
 
     print("\n" + "=" * 100)
-    print("McElveen Autonomous Trading System v3.0.37 - HARDENED PRODUCTION - Thursday 8AM Deposits")
+    print("McElveen Autonomous Trading System v3.0.39 - WHOLE SHARES ONLY - Thursday 8AM Deposits")
     print("=" * 100)
     print(f"[TIME] {datetime.utcnow().isoformat()}Z")
 
@@ -3627,7 +3616,8 @@ def lambda_handler(event, context):
                     # Execute rebalance: sell worst, buy new opportunity
                     if AUTONOMOUS_MODE_ENABLED:
                         # Calculate quantity for new symbol (trade_size dollars / price)
-                        new_quantity = trade_size / price if price > 0 else 0
+                        # FIX v3.0.39: Enforce whole shares only (no fractional shares)
+                        new_quantity = int(trade_size / price) if price > 0 else 0
                         rebalance_success, rebalance_msg = execute_rebalance(
                             access_token, worst_symbol, worst_qty, account_hash,
                             symbol, new_quantity, price, asset_class, worst_pnl_pct, holdings
@@ -3726,18 +3716,18 @@ def lambda_handler(event, context):
 
             if sell_quantity > 0:
                 # Execute sell and buy
-                # FRACTIONAL SHARE FIX: Allow fractional shares (Schwab supports 0.001+ minimum)
+                # FIX v3.0.39: Enforce whole shares only (no fractional shares)
                 new_quantity_raw = trade_size / price if price > 0 else 0
-                new_quantity = round(new_quantity_raw, 4)  # Allow fractional shares to 4 decimals
+                new_quantity = int(new_quantity_raw)  # Convert to whole shares only
 
-                if new_quantity < 0.001 and new_quantity > 0:
-                    # If fractional is too small (< 0.001), Schwab minimum, don't execute
-                    print(f"[PORTFOLIO_MANAGER] 🟠 SELL_AND_BUY blocked: Fractional share too small ({new_quantity:.6f} < 0.001 minimum) for {symbol}")
+                if new_quantity == 0:
+                    # Insufficient capital for 1 whole share
+                    print(f"[PORTFOLIO_MANAGER] 🟠 SELL_AND_BUY blocked: Insufficient capital for whole share purchase of {symbol} (need ${price:.2f}, have ${trade_size:.2f})")
                     log_portfolio_metrics(metrics)
                     send_cloudwatch_metric('TradesBlocked', 1)
                     return {
                         'statusCode': 202,
-                        'body': json.dumps({'result': 'BLOCKED', 'reason': f'Fractional too small: {new_quantity:.6f} < 0.001 minimum'})
+                        'body': json.dumps({'result': 'BLOCKED', 'reason': f'Insufficient capital for {symbol} (need ${price:.2f}, allocated ${trade_size:.2f})'})
                     }
 
                 print(f"[PORTFOLIO_MANAGER] ✅ Executing fractional buy: {new_quantity:.4f} shares of {symbol} @ ${price:.2f} (${trade_size:.2f} allocated)")
