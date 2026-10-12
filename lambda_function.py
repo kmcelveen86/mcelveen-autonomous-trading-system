@@ -1283,9 +1283,8 @@ def read_positions_from_snapshot():
         response = table.scan(Limit=10)
 
         if not response.get('Items'):
-            print(f"[POSITIONS] ⚠️ No snapshot found, falling back to trade journal")
-            holdings = read_positions_from_trade_journal()
-            return holdings, float('inf'), 'TRADE_JOURNAL'
+            print(f"[POSITIONS] ❌ No snapshot found - trade journal fallback disabled")
+            return {}, float('inf'), 'NO_SNAPSHOT'
 
         # Sort by SnapshotTime (most recent first) and get the latest
         items = sorted(response['Items'], key=lambda x: x.get('SnapshotTime', ''), reverse=True)
@@ -1304,9 +1303,8 @@ def read_positions_from_snapshot():
         print(f"[POSITIONS] Read {len(holdings)} holdings from snapshot table (age: {age_hours:.1f}h)")
         return holdings, age_hours, 'SNAPSHOT'
     except Exception as e:
-        print(f"[POSITIONS] ⚠️ Snapshot read failed: {e}, falling back to trade journal")
-        holdings = read_positions_from_trade_journal()
-        return holdings, float('inf'), 'TRADE_JOURNAL'
+        print(f"[POSITIONS] ❌ Snapshot read failed: {e} - trade journal fallback disabled")
+        return {}, float('inf'), 'NO_SNAPSHOT'
 
 
 def read_positions_from_trade_journal():
@@ -3361,25 +3359,26 @@ def lambda_handler(event, context):
             print("[ERROR] Could not get account hash")
             return {'statusCode': 500, 'body': 'Account hash failed'}
 
-        # ===== STEP 4a: VALIDATE POSITIONS DATA FRESHNESS (NEW v3.0.36) =====
-        # CRITICAL: If using TRADE_JOURNAL data (last resort fallback), HALT trading
+        # ===== STEP 4a: VALIDATE POSITIONS DATA FRESHNESS (v3.0.36 SIMPLIFIED) =====
+        # CRITICAL: Trade journal fallback is now completely disabled
+        # If no snapshot and Schwab API unavailable, HALT trading (no fallback)
         # This prevents selling positions that don't actually exist (e.g., IWM issue 2026-10-12)
         print("\n[STEP 4a] Validating positions data freshness...")
-        if positions_source == 'TRADE_JOURNAL':
-            msg = f"[CRITICAL] ❌ TRADING HALTED: Cannot get current positions from Schwab API or snapshot. Using trade journal fallback (unreliable). Manual positions update required."
+        if positions_source == 'NO_SNAPSHOT':
+            msg = f"[CRITICAL] ❌ TRADING HALTED: Cannot get current positions from Schwab API or snapshot. Trade journal fallback has been disabled. Manual positions update to DynamoDB required."
             print(msg)
             print(f"[POSITIONS_DATA] Source: {positions_source} (Age: {positions_age_hours:.1f}h)")
-            print(f"[HOLDINGS] Current: {list(holdings.keys())}")
+            print(f"[HOLDINGS] Current: NONE (no positions data available)")
             send_alert_email(
-                msg + f"\n\nCurrent holdings: {list(holdings.keys())}\n\nPlease verify against actual Schwab account.",
-                "POSITIONS_DATA_STALE_HALT",
+                msg + f"\n\nTo resume trading:\n1. Take a screenshot of your Schwab positions\n2. Run: python3 update-positions-snapshot.py\n3. Verify AWS credentials are configured",
+                "POSITIONS_NO_SNAPSHOT_HALT",
                 0,
                 "HALT",
                 True,
-                f"Positions data is stale (trade journal fallback only)",
+                f"No positions data available (snapshot not found)",
                 None
             )
-            return {'statusCode': 403, 'body': 'Trading halted: positions data is stale (trade journal fallback)'}
+            return {'statusCode': 403, 'body': 'Trading halted: no positions data available (snapshot required)'}
 
         if positions_source == 'SNAPSHOT':
             print(f"[POSITIONS_DATA] ⚠️ Using snapshot data (age: {positions_age_hours:.1f}h). Schwab API unavailable.")
