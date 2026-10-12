@@ -1,6 +1,6 @@
 """
 ================================================================================
-McElveen Autonomous Trading System - v3.0.32 COMPLETE PRODUCTION (Fractional Shares)
+McElveen Autonomous Trading System - v3.0.33 COMPLETE PRODUCTION (Sector Fix)
 ================================================================================
 
 THREE-AGENT AI ARCHITECTURE:
@@ -47,6 +47,15 @@ CRITICAL FIXES v3.0.31:
 ✅ FIX #8: Portfolio drawdown limit adjusted to -35% for recovery mode (was -15%)
 ✅ FIX #9: F-String escape bug in Claude prompt (${amount:.2f} → plain text example)
 ✅ FIX #10: Missing sector_signal field in macro_data (KeyError in Trader Claude Step 8 → added BALANCED default)
+
+CRITICAL FIXES v3.0.32:
+✅ FIX #11: Enable fractional share trading (Schwab 0.001+ minimum) - rounds to 4 decimals
+
+CRITICAL FIXES v3.0.33:
+✅ FIX #12: Sector concentration guardrail (G3) now checks INDIVIDUAL sectors (TECHNOLOGY, FINANCE, etc)
+   └─ BUGFIX: Was lumping all STOCKS together, preventing legitimate diversification
+   └─ NOW: Only blocks if a SPECIFIC sector would exceed 25% of portfolio value
+   └─ IMPACT: CIO can execute sector rotation strategies without guardrail false positives
 
 TRADE LIMITS (AGGRESSIVE - Option B):
 - VIX < 12: 5 trades/day (claude-opus-5-5)
@@ -475,6 +484,61 @@ PORTFOLIO CONSTRAINTS:
 # =====================================================================
 # MARKET DATA - COMPLETE UNIVERSE
 # =====================================================================
+
+def build_sector_mapping():
+    """
+    Build a symbol-to-sector mapping from the stock universe.
+    Used to classify holdings and enforce sector concentration limits (G3).
+    """
+    sector_map = {}
+    universe_by_sector = {
+        'TECHNOLOGY': [
+            'AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA', 'TSLA', 'AMZN',
+            'AMD', 'INTC', 'NFLX', 'ADBE', 'CRM', 'CSCO', 'ORCL', 'IBM', 'AVGO', 'QCOM', 'MCHP', 'MU', 'SNPS', 'CDNS', 'TTD', 'ADSK', 'NOW', 'CRWD', 'PANW', 'WDAY',
+            'PLTR', 'COIN', 'SHOP', 'UPST', 'SNOW', 'NVAX', 'ROKU', 'ZM', 'UNITY', 'NET', 'FASTLY', 'HUBS', 'DOCN', 'RBLX', 'TEAM'
+        ],
+        'FINANCE': [
+            'JPM', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'ICE', 'AXP', 'COF', 'USB', 'PNC', 'C', 'KEY', 'MI', 'CM', 'BK', 'STT',
+            'SCHW', 'TD', 'IBKR', 'BRK.B', 'PGR', 'ALL', 'HIG', 'UNM', 'LPL', 'MKL', 'RLI', 'AFG',
+            'FI', 'VIRT', 'MARA', 'RIOT', 'CLSK'
+        ],
+        'HEALTHCARE': [
+            'JNJ', 'PFE', 'MRK', 'ABBV', 'LLY', 'AMGN', 'TEVA', 'VRTX', 'REGN', 'BIIB', 'CELG', 'EXAS', 'ILMN', 'CRSP', 'MRNA', 'BNTX',
+            'UNH', 'TMO', 'MDT', 'ISRG', 'ZBH', 'HOLX', 'BSX', 'ANTM', 'CI', 'HUM', 'VEEV', 'RMD', 'DXCM', 'TDOC'
+        ],
+        'ENERGY': [
+            'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'PSX', 'MPC', 'VLO', 'HES', 'OKE', 'MUR', 'DVN', 'FANG', 'TPL', 'RRC',
+            'NEE', 'DUK', 'SO', 'AEE', 'CEG', 'EXC', 'CMCSA', 'ES', 'PLUG', 'FSLR', 'RUN'
+        ],
+        'CONSUMER': [
+            'WMT', 'TGT', 'COST', 'DLTR', 'DKNG', 'BBBY', 'M', 'JWN', 'AZO', 'ORLY', 'ROST', 'LOWE',
+            'PG', 'KO', 'PEP', 'MO', 'MNST', 'GIS', 'HSY', 'K', 'CAG', 'CLX', 'CPB', 'MDLZ', 'NSRGY',
+            'MCD', 'SBUX', 'YUM', 'CMG', 'TXRH', 'DIN', 'NCLH', 'RCL', 'CCL',
+            'NKE', 'VF', 'LULU', 'UAA', 'DECK', 'MHK', 'RH', 'CPRI', 'ULTA', 'FIVE'
+        ],
+        'INDUSTRIAL': [
+            'BA', 'LMT', 'RTX', 'GD', 'NOC', 'HII', 'CAT', 'DE', 'FLS', 'PCAR', 'INGR', 'JCI', 'IDEX', 'ROK', 'ITW', 'CSL', 'OTIS',
+            'GWW', 'FAST', 'RSG', 'WM', 'PH', 'EMR', 'ETN', 'STLD', 'NUE', 'X', 'SCCO',
+            'UPS', 'FDX', 'ODFL', 'XPO', 'JBLU', 'DAL', 'UAL', 'ALK'
+        ],
+        'REAL_ESTATE': [
+            'O', 'STAG', 'NLY', 'AGNC', 'PLD', 'AMT', 'CCI', 'EQIX', 'DLR', 'SPG', 'AVB', 'EQR', 'MAA', 'AIV', 'UMH', 'MHI', 'CTRE'
+        ],
+        'UTILITIES': [
+            'DUK', 'SO', 'NEE', 'D', 'AEP', 'EXC', 'SVR', 'WEC', 'ES', 'DTE', 'PEG', 'AES', 'EIX', 'CMS', 'NRG', 'PPL', 'XEL'
+        ],
+        'MATERIALS': [
+            'NEM', 'SCCO', 'FCX', 'JCI', 'CLF', 'NUE', 'STLD', 'MT', 'RIO', 'BHP', 'FLS', 'TECK',
+            'LYB', 'SHW', 'CTVA', 'DOW', 'EC', 'FMC', 'OLN', 'WLK', 'AXTA'
+        ]
+    }
+
+    for sector, symbols in universe_by_sector.items():
+        for symbol in symbols:
+            sector_map[symbol] = sector
+
+    return sector_map
+
 
 def get_market_overview(access_token):
     """Fetch VIX, yields, sector performance, rate environment."""
@@ -1161,11 +1225,13 @@ def read_positions_from_trade_journal():
             order_id = item.get('OrderID', 'UNKNOWN')
 
             if symbol != 'UNKNOWN' and quantity > 0:
+                sector_map = build_sector_mapping()
                 holdings[symbol] = {
                     'quantity': quantity,
                     'entry_price': entry_price,
                     'current_price': entry_price,
                     'asset_class': asset_class,
+                    'sector': sector_map.get(symbol, 'OTHER'),  # Lookup sector from mapping
                     'order_id': order_id,
                     'cost_basis': quantity * entry_price
                 }
@@ -1208,11 +1274,13 @@ def read_positions_from_schwab_api(access_token, account_hash):
 
                 if symbol != 'UNKNOWN' and quantity > 0:
                     current_price = market_value / quantity if quantity != 0 else average_price
+                    sector_map = build_sector_mapping()
                     holdings[symbol] = {
                         'quantity': quantity,
                         'entry_price': average_price,
                         'current_price': current_price,
                         'asset_class': 'STOCK' if asset_type == 'EQUITY' else asset_type,
+                        'sector': sector_map.get(symbol, 'OTHER'),  # Lookup sector from mapping
                         'order_id': 'LIVE',
                         'cost_basis': quantity * average_price,
                         'market_value': market_value
@@ -1770,16 +1838,20 @@ def check_guardrails(symbol, trade_size, portfolio_value, trades_today, max_dail
         if (options_exposure + trade_size) > (portfolio_value * OPTIONS_EXPOSURE_LIMIT_PCT):
             return False, f"Options exposure limit exceeded"
 
-    # G6: Sector exposure limit
-    if asset_class in ['STOCK', 'SECTOR_ETF']:
-        # Get sector from holdings
+    # G3: Sector concentration limit (FIXED v3.0.33)
+    # Now checks individual sectors (TECHNOLOGY, FINANCE, etc) instead of lumping all stocks
+    if asset_class == 'STOCK':
+        sector_map = build_sector_mapping()
+        target_sector = sector_map.get(symbol, 'OTHER')  # Get sector for this symbol
+
+        # Sum exposure in this specific sector only
         sector_exposure = 0
         for sym, h in holdings.items():
-            if h.get('asset_class') == asset_class:
+            if h.get('sector') == target_sector:
                 sector_exposure += h['cost_basis']
 
         if (sector_exposure + trade_size) > (portfolio_value * SECTOR_EXPOSURE_LIMIT_PCT):
-            return False, f"Sector exposure limit exceeded"
+            return False, f"[G3] Sector {target_sector} exposure limit (25%) would be exceeded: ${sector_exposure:.2f} + ${trade_size:.2f} > ${portfolio_value * SECTOR_EXPOSURE_LIMIT_PCT:.2f}"
 
     # G7: Drawdown limit
     if metrics.daily_change_pct < -PORTFOLIO_DRAWDOWN_LIMIT_PCT:
