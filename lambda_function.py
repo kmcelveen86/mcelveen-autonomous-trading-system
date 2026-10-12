@@ -2250,6 +2250,14 @@ def portfolio_manager_decision(symbol, asset_class, price, holdings, cio_regime,
     # Score new opportunity
     new_opp_thesis = get_thesis_score(symbol, cio_regime)
 
+    # FIX v3.0.37 #2: Handle case where holdings_scores is empty (no valid holdings to score)
+    if not holdings_scores:
+        # No valid holdings data - just buy the new opportunity
+        action = "BUY"
+        rationale = f"No valid holdings to score. Initiating position with {symbol}."
+        print(f"[PORTFOLIO_MANAGER] 🟢 {action}: {rationale}")
+        return action, None, rationale
+
     # Find worst performer
     worst_ticker = min(holdings_scores, key=lambda x: holdings_scores[x]['composite'])
     worst_score = holdings_scores[worst_ticker]['composite']
@@ -2293,7 +2301,7 @@ def portfolio_manager_decision(symbol, asset_class, price, holdings, cio_regime,
         return action, None, rationale
 
     # 5. Already holding symbol with positive P&L - buy more
-    if symbol in holdings:
+    if symbol in holdings and symbol in holdings_scores:
         holding_pnl = holdings_scores[symbol]['pnl_pct']
         if holding_pnl > 0 and new_opp_thesis >= 7:
             action = "BUY_MORE"
