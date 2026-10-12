@@ -261,7 +261,8 @@ class PortfolioMetrics:
 
         for holding in holdings.values():
             asset_class = holding.get('asset_class', 'STOCK')
-            value = holding['quantity'] * holding.get('current_price', holding['entry_price'])
+            entry_price = holding.get('entry_price') or holding.get('cost_basis', 0)
+            value = holding['quantity'] * holding.get('current_price', entry_price)
             pct = (value / self.nav * 100) if self.nav > 0 else 0
             allocation[asset_class] += pct
 
