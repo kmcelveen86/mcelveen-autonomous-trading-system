@@ -3355,7 +3355,7 @@ def lambda_handler(event, context):
     """
 
     print("\n" + "=" * 100)
-    print("McElveen Autonomous Trading System v3.0.39 - WHOLE SHARES ONLY - Thursday 8AM Deposits")
+    print("McElveen Autonomous Trading System v3.0.40 - FRACTIONAL SHARES RESTORED - Thursday 8AM Deposits")
     print("=" * 100)
     print(f"[TIME] {datetime.utcnow().isoformat()}Z")
 
