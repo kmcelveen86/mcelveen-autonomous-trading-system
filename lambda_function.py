@@ -184,6 +184,7 @@ ALERT_EMAIL = os.environ.get('ALERT_EMAIL', 'kvmcelveen@outlook.com,tesheina11@o
 
 # Schwab API
 SCHWAB_BASE_URL = "https://api.schwabapi.com/trader/v1"
+SCHWAB_MARKETDATA_URL = "https://api.schwabapi.com/marketdata/v1"  # Correct endpoint (HTTP 200 verified)
 SCHWAB_CLIENT_ID = os.environ.get('SCHWAB_CLIENT_ID')
 SCHWAB_CLIENT_SECRET = os.environ.get('SCHWAB_CLIENT_SECRET')
 SCHWAB_REFRESH_TOKEN = os.environ.get('SCHWAB_REFRESH_TOKEN')
@@ -646,7 +647,7 @@ def get_market_overview(access_token):
     try:
         print("[MARKET] Fetching market overview...")
 
-        vix_url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols=%5EVIX&fields=quote"
+        vix_url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols=%5EVIX&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         vix_response = requests.get(vix_url, headers=headers, timeout=10)
         vix = 15.0
@@ -655,7 +656,7 @@ def get_market_overview(access_token):
             if '^VIX' in vix_data.get('quoteData', {}):
                 vix = float(vix_data['quoteData']['^VIX'].get('regularMarketPrice', 15.0))
 
-        treasuries_url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols=TLT,IEF,SHY&fields=quote"
+        treasuries_url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols=TLT,IEF,SHY&fields=quote"
         treasuries_response = requests.get(treasuries_url, headers=headers, timeout=10)
         yields = {}
         if treasuries_response.status_code == 200:
@@ -665,7 +666,7 @@ def get_market_overview(access_token):
                     price = float(t_data['quoteData'][symbol].get('regularMarketPrice', 100.0))
                     yields[symbol] = price
 
-        sectors_url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols=XLK,XLE,XLV,XLF,XLY,XLI,XLRE,XLU&fields=quote"
+        sectors_url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols=XLK,XLE,XLV,XLF,XLY,XLI,XLRE,XLU&fields=quote"
         sectors_response = requests.get(sectors_url, headers=headers, timeout=10)
         sector_performance = {}
         if sectors_response.status_code == 200:
@@ -704,7 +705,7 @@ def get_top_performers(access_token):
             'SCHD', 'DGRO', 'VYMI', 'PFF',
         ]
 
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={','.join(universe)}&fields=quote"
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={','.join(universe)}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=15)
         performers = []
@@ -781,7 +782,7 @@ def get_fixed_income_opportunities(access_token):
             'HYG': {'name': 'High Yield Corp', 'duration': 'INTERMEDIATE', 'credit': 'HIGH_YIELD'},
         }
 
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={','.join(bonds.keys())}&fields=quote"
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={','.join(bonds.keys())}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=10)
         bond_opportunities = []
@@ -823,7 +824,7 @@ def get_mutual_fund_universe(access_token):
             'VMFXX': {'name': 'Vanguard Money Market Fund', 'style': 'CASH'},
         }
 
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={','.join(funds.keys())}&fields=quote"
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={','.join(funds.keys())}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=10)
         fund_opportunities = []
@@ -963,7 +964,7 @@ def get_comprehensive_stock_universe(access_token):
             all_symbols.extend(symbols)
 
         # Fetch quotes for all symbols
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={','.join(all_symbols)}&fields=quote"
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={','.join(all_symbols)}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=20)
 
@@ -1527,7 +1528,7 @@ def validate_symbol_liquidity(access_token, symbol, min_volume=100000):
     Returns: (valid, price, error_msg)
     """
     try:
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={symbol}&fields=quote"
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={symbol}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=10)
 
