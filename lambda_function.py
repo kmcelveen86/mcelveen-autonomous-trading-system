@@ -148,10 +148,10 @@ from anthropic import Anthropic
 import math
 import hashlib
 
-print("[INIT] McElveen Autonomous Trading System v3.0.39 - WHOLE SHARES ONLY")
-print("[INIT] ✅ FIX #1: Enforce whole shares only (no fractional shares)")
-print("[INIT] ✅ FIX #2: Use MARKET orders exclusively (not LIMIT)")
-print("[INIT] ✅ FIX #3: int() conversion for all position sizing")
+print("[INIT] McElveen Autonomous Trading System v3.0.40 - FRACTIONAL SHARES RESTORED")
+print("[INIT] ✅ FIX #1: Restore fractional share support (Schwab 0.001+ minimum)")
+print("[INIT] ✅ FIX #2: Use MARKET orders with fractional fallback")
+print("[INIT] ✅ FIX #3: Dynamic position sizing with 4-decimal precision")
 print("[INIT] ✅ v3.0.38 BASE: Market data parsing corrected")
 print("[INIT] All systems loaded - ready for deployment")
 
@@ -2577,7 +2577,7 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
             "orderStrategyType": "SINGLE",
             "orderLegCollection": [{
                 "instruction": "SELL",
-                "quantity": int(quantity),
+                "quantity": quantity,
                 "quantityType": "SHARES",
                 "instrument": {"symbol": worst_symbol, "assetType": "EQUITY"}
             }]
@@ -2619,7 +2619,7 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
             "orderStrategyType": "SINGLE",
             "orderLegCollection": [{
                 "instruction": "BUY",
-                "quantity": int(new_quantity),
+                "quantity": new_quantity,
                 "quantityType": "SHARES",
                 "instrument": {"symbol": new_symbol, "assetType": "EQUITY"}
             }]
@@ -2678,7 +2678,7 @@ def preview_order_on_schwab(access_token, symbol, quantity, account_hash, price,
             "orderLegCollection": [
                 {
                     "instruction": "BUY",
-                    "quantity": int(quantity),
+                    "quantity": quantity,
                     "quantityType": "SHARES",
                     "instrument": {"symbol": symbol, "assetType": "EQUITY"}
                 }
@@ -2751,8 +2751,8 @@ def execute_trade_on_schwab(access_token, symbol, trade_size_dollars, account_ha
         url = f"{SCHWAB_BASE_URL}/accounts/{account_hash}/orders"
         quantity_in_shares = trade_size_dollars / price if price > 0 else 0
 
-        # FIX v3.0.39: Enforce whole shares only (no fractional shares)
-        quantity_in_shares = int(quantity_in_shares)
+        # FIX v3.0.40: Support fractional shares with 4-decimal precision (Schwab 0.001+ minimum)
+        quantity_in_shares = round(quantity_in_shares, 4)
 
         if quantity_in_shares == 0:
             print(f"[ERROR] ❌ Insufficient capital: ${trade_size_dollars:.2f} @ ${price:.2f} (minimum $1 whole share)")
@@ -3616,8 +3616,8 @@ def lambda_handler(event, context):
                     # Execute rebalance: sell worst, buy new opportunity
                     if AUTONOMOUS_MODE_ENABLED:
                         # Calculate quantity for new symbol (trade_size dollars / price)
-                        # FIX v3.0.39: Enforce whole shares only (no fractional shares)
-                        new_quantity = int(trade_size / price) if price > 0 else 0
+                        # FIX v3.0.40: Support fractional shares with 4-decimal precision
+                        new_quantity = round(trade_size / price, 4) if price > 0 else 0
                         rebalance_success, rebalance_msg = execute_rebalance(
                             access_token, worst_symbol, worst_qty, account_hash,
                             symbol, new_quantity, price, asset_class, worst_pnl_pct, holdings
@@ -3716,9 +3716,9 @@ def lambda_handler(event, context):
 
             if sell_quantity > 0:
                 # Execute sell and buy
-                # FIX v3.0.39: Enforce whole shares only (no fractional shares)
+                # FIX v3.0.40: Support fractional shares with 4-decimal precision
                 new_quantity_raw = trade_size / price if price > 0 else 0
-                new_quantity = int(new_quantity_raw)  # Convert to whole shares only
+                new_quantity = round(new_quantity_raw, 4)  # Fractional shares with 4-decimal precision
 
                 if new_quantity == 0:
                     # Insufficient capital for 1 whole share
