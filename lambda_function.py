@@ -1,6 +1,6 @@
 """
 ================================================================================
-McElveen Autonomous Trading System - v3.0.33 COMPLETE PRODUCTION (Sector Fix)
+McElveen Autonomous Trading System - v3.0.34 COMPLETE PRODUCTION (Tiered Sectors)
 ================================================================================
 
 THREE-AGENT AI ARCHITECTURE:
@@ -54,8 +54,15 @@ CRITICAL FIXES v3.0.32:
 CRITICAL FIXES v3.0.33:
 ✅ FIX #12: Sector concentration guardrail (G3) now checks INDIVIDUAL sectors (TECHNOLOGY, FINANCE, etc)
    └─ BUGFIX: Was lumping all STOCKS together, preventing legitimate diversification
-   └─ NOW: Only blocks if a SPECIFIC sector would exceed 25% of portfolio value
+   └─ NOW: Only blocks if a SPECIFIC sector would exceed limit of portfolio value
    └─ IMPACT: CIO can execute sector rotation strategies without guardrail false positives
+
+CRITICAL FIXES v3.0.34:
+✅ FIX #13: Tiered sector exposure limits based on portfolio stage (CIO decision)
+   └─ MICRO ($0-$50): 40% sector limit - growth phase, allow capital deployment
+   └─ GROWTH ($50-$500): 30% sector limit - balanced concentration control
+   └─ MATURE ($500+): 25% sector limit - full institutional discipline
+   └─ RATIONALE: 25% limit is too restrictive at micro-scale; scales with portfolio growth
 
 TRADE LIMITS (AGGRESSIVE - Option B):
 - VIX < 12: 5 trades/day (claude-opus-5-5)
@@ -120,7 +127,12 @@ MAX_TRADE_SIZE = 25.00  # Note: May need increase if using higher trade sizes
 
 POSITION_LIMIT_PCT = 0.35  # CIO decision: 35% allows $5 minimum orders on $15+ buying power; guardrails tighten naturally as portfolio grows
 OPTIONS_EXPOSURE_LIMIT_PCT = 0.30
-SECTOR_EXPOSURE_LIMIT_PCT = 0.25
+SECTOR_EXPOSURE_LIMIT_PCT = 0.25  # Default; overridden by portfolio stage in get_sector_limit()
+SECTOR_LIMITS_BY_STAGE = {
+    'MICRO': {'max_nav': 50, 'limit_pct': 0.40},      # < $50: 40% (growth phase)
+    'GROWTH': {'max_nav': 500, 'limit_pct': 0.30},    # $50-$500: 30% (balanced)
+    'MATURE': {'max_nav': float('inf'), 'limit_pct': 0.25}  # $500+: 25% (institutional)
+}
 # FIX v3.0.31 #5: PORTFOLIO_DRAWDOWN_LIMIT_PCT for recovery buying during drawdown phase
 # - Oct 8, 2026: Adjusted from 0.15 (-15%) to 0.35 (-35%) to enable "buy the dip" strategy
 # - Allows CIO to make recommendations when portfolio is down 35% (recovery opportunity)
@@ -484,6 +496,22 @@ PORTFOLIO CONSTRAINTS:
 # =====================================================================
 # MARKET DATA - COMPLETE UNIVERSE
 # =====================================================================
+
+def get_sector_limit(portfolio_value):
+    """
+    Determine sector exposure limit based on portfolio stage (v3.0.34 CIO decision).
+
+    MICRO-CAP ($0-$50): 40% - Growth phase, allow capital deployment
+    GROWTH ($50-$500): 30% - Balanced concentration control
+    MATURE ($500+): 25% - Full institutional discipline
+    """
+    for stage, config in SECTOR_LIMITS_BY_STAGE.items():
+        if portfolio_value <= config['max_nav']:
+            limit = config['limit_pct']
+            print(f"[GUARDRAILS] Sector limit: {limit*100:.0f}% ({stage} stage, NAV ${portfolio_value:.2f})")
+            return limit
+    return SECTOR_EXPOSURE_LIMIT_PCT  # Fallback
+
 
 def build_sector_mapping():
     """
@@ -1838,11 +1866,13 @@ def check_guardrails(symbol, trade_size, portfolio_value, trades_today, max_dail
         if (options_exposure + trade_size) > (portfolio_value * OPTIONS_EXPOSURE_LIMIT_PCT):
             return False, f"Options exposure limit exceeded"
 
-    # G3: Sector concentration limit (FIXED v3.0.33)
+    # G3: Sector concentration limit (FIXED v3.0.33, TIERED v3.0.34)
     # Now checks individual sectors (TECHNOLOGY, FINANCE, etc) instead of lumping all stocks
+    # Uses tiered limits based on portfolio stage (40% micro, 30% growth, 25% mature)
     if asset_class == 'STOCK':
         sector_map = build_sector_mapping()
         target_sector = sector_map.get(symbol, 'OTHER')  # Get sector for this symbol
+        sector_limit = get_sector_limit(portfolio_value)  # Get tiered limit based on NAV
 
         # Sum exposure in this specific sector only
         sector_exposure = 0
@@ -1850,8 +1880,8 @@ def check_guardrails(symbol, trade_size, portfolio_value, trades_today, max_dail
             if h.get('sector') == target_sector:
                 sector_exposure += h['cost_basis']
 
-        if (sector_exposure + trade_size) > (portfolio_value * SECTOR_EXPOSURE_LIMIT_PCT):
-            return False, f"[G3] Sector {target_sector} exposure limit (25%) would be exceeded: ${sector_exposure:.2f} + ${trade_size:.2f} > ${portfolio_value * SECTOR_EXPOSURE_LIMIT_PCT:.2f}"
+        if (sector_exposure + trade_size) > (portfolio_value * sector_limit):
+            return False, f"[G3] Sector {target_sector} limit ({sector_limit*100:.0f}%) would be exceeded: ${sector_exposure:.2f} + ${trade_size:.2f} > ${portfolio_value * sector_limit:.2f}"
 
     # G7: Drawdown limit
     if metrics.daily_change_pct < -PORTFOLIO_DRAWDOWN_LIMIT_PCT:
