@@ -32,14 +32,23 @@ pydantic>=2.5.0
 5. Timeout: 60 seconds
 
 ### Step 2: Deploy Code
+
+**Bash:**
 ```bash
-# Upload the deployment package
 aws lambda update-function-code \
   --function-name mcelveen-autonomous-forex \
   --zip-file fileb://mcelveen-forex-lambda-v3.0.36.zip
 ```
 
+**PowerShell:**
+```powershell
+$functionCode = [System.IO.File]::ReadAllBytes("mcelveen-forex-lambda-v3.0.36.zip")
+Update-LMFunctionCode -FunctionName mcelveen-autonomous-forex -ZipFilename $functionCode
+```
+
 ### Step 3: Configure Environment Variables
+
+**Bash:**
 ```bash
 aws lambda update-function-configuration \
   --function-name mcelveen-autonomous-forex \
@@ -55,7 +64,25 @@ aws lambda update-function-configuration \
   }'
 ```
 
+**PowerShell:**
+```powershell
+$environment = @{
+    "SCHWAB_ACCOUNT_ID"="7720-9306"
+    "SCHWAB_ACCESS_TOKEN"="<your_token>"
+    "SCHWAB_REFRESH_TOKEN"="<your_refresh_token>"
+    "FOREX_TRADES_TABLE"="mcelveen-forex-trades"
+    "FOREX_METRICS_TABLE"="mcelveen-forex-metrics"
+    "CLAUDE_API_KEY"="<your_api_key>"
+    "CLAUDE_MODEL"="claude-sonnet-5"
+    "ENABLE_CACHE"="true"
+}
+
+Update-LMFunctionConfiguration -FunctionName mcelveen-autonomous-forex -Environment_Variables $environment
+```
+
 ### Step 4: Create DynamoDB Tables
+
+**Bash:**
 ```bash
 # Forex Trades Table
 aws dynamodb create-table \
@@ -82,7 +109,38 @@ aws dynamodb create-table \
   --region us-east-2
 ```
 
+**PowerShell:**
+```powershell
+# Forex Trades Table
+New-DDBTable -TableName mcelveen-forex-trades `
+  -AttributeDefinition @(
+    @{AttributeName='trade_id'; AttributeType='S'},
+    @{AttributeName='timestamp'; AttributeType='S'}
+  ) `
+  -KeySchema @(
+    @{AttributeName='trade_id'; KeyType='HASH'},
+    @{AttributeName='timestamp'; KeyType='RANGE'}
+  ) `
+  -BillingMode PAY_PER_REQUEST `
+  -Region us-east-2
+
+# Forex Metrics Table
+New-DDBTable -TableName mcelveen-forex-metrics `
+  -AttributeDefinition @(
+    @{AttributeName='metric_date'; AttributeType='S'},
+    @{AttributeName='timestamp'; AttributeType='S'}
+  ) `
+  -KeySchema @(
+    @{AttributeName='metric_date'; KeyType='HASH'},
+    @{AttributeName='timestamp'; KeyType='RANGE'}
+  ) `
+  -BillingMode PAY_PER_REQUEST `
+  -Region us-east-2
+```
+
 ### Step 5: Set Up EventBridge Trigger
+
+**Bash:**
 ```bash
 # Create rule for 5-minute interval
 aws events put-rule \
@@ -104,13 +162,43 @@ aws lambda add-permission \
   --source-arn arn:aws:events:us-east-2:<ACCOUNT_ID>:rule/mcelveen-forex-trigger
 ```
 
+**PowerShell:**
+```powershell
+# Create rule for 5-minute interval
+New-EVRule -Name mcelveen-forex-trigger `
+  -ScheduleExpression "rate(5 minutes)" `
+  -State ENABLED
+
+# Add Lambda target
+$targetId = @{Id="1"; Arn="arn:aws:lambda:us-east-2:<ACCOUNT_ID>:function:mcelveen-autonomous-forex"}
+New-EVTarget -Rule mcelveen-forex-trigger -Target @($targetId)
+
+# Grant Lambda permission
+Add-LMPermission -FunctionName mcelveen-autonomous-forex `
+  -StatementId AllowEventBridgeInvoke `
+  -Action lambda:InvokeFunction `
+  -Principal events.amazonaws.com `
+  -SourceArn arn:aws:events:us-east-2:<ACCOUNT_ID>:rule/mcelveen-forex-trigger
+```
+
 ### Step 6: Verify Deployment
+
+**Bash:**
 ```bash
 # Check function state
 aws lambda get-function --function-name mcelveen-autonomous-forex
 
 # Check recent invocations
 aws logs tail /aws/lambda/mcelveen-autonomous-forex --follow
+```
+
+**PowerShell:**
+```powershell
+# Check function state
+Get-LMFunction -FunctionName mcelveen-autonomous-forex
+
+# Check recent invocations
+Get-CWLLogEvents -LogGroupName /aws/lambda/mcelveen-autonomous-forex -LogStreamNamePrefix "" -Follow
 ```
 
 ---
