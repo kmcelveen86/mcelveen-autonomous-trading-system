@@ -1,5 +1,11 @@
 # 🤖 McElveen Autonomous Trading System (v3.0.42)
 
+**⚠️ Architecture Reference Repository**
+
+This is the **public architecture reference** for the McElveen Autonomous Trading System. The core proprietary algorithm, implementation code, and live trading parameters are maintained in a private repository. See [PROPRIETARY.md](PROPRIETARY.md) for details.
+
+---
+
 An event-driven, serverless quantitative AI agent deployed on **AWS Lambda** that autonomously executes **day trading strategies** via the **Charles Schwab API** and **Anthropic's Claude**. 
 
 The system runs continuously throughout market hours with zero manual intervention, capturing daily intraday profits (2%+, 3%+, 5%+) and systematically redeploying capital for exponential wealth compounding. Every decision is logged with full auditability and compliance guardrails.
