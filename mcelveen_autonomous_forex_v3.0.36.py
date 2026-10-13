@@ -457,20 +457,27 @@ class SchwabForexClient:
             if not schwab_symbol:
                 return None
 
+            # FIX: Call /accounts/{accountNumber} with ?fields=positions (not /positions)
+            # Schwab API returns positions as part of account data
+            account_url = f"{SCHWAB_BASE_URL}/accounts/{SCHWAB_ACCOUNT_ID}"
             response = requests.get(
-                SCHWAB_ACCOUNTS_ENDPOINT,
+                account_url,
                 headers=self.headers,
                 params={"fields": "positions"},
                 timeout=10
             )
 
             if response.status_code == 200:
-                account = response.json()[0]
-                for position in account.get('securitiesAccount', {}).get('positions', []):
+                account = response.json()
+                # Extract positions from securitiesAccount
+                positions = account.get('securitiesAccount', {}).get('positions', [])
+                for position in positions:
                     if position.get('instrument', {}).get('symbol') == schwab_symbol:
                         return position
-
-            return None
+                return None
+            else:
+                print(f"[POSITIONS] Warning: GET {account_url} returned {response.status_code}")
+                return None
 
         except Exception as e:
             print(f"Error fetching position for {pair}: {str(e)}")
