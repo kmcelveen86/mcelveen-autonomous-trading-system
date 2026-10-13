@@ -1,12 +1,14 @@
-# 🤖 McElveen Autonomous Trading System (v3.0.27)
+# 🤖 McElveen Autonomous Trading System (v3.0.42)
 
-An event-driven, serverless quantitative AI agent deployed on **AWS Lambda** that autonomously manages an investment portfolio via the **Charles Schwab API** and **Anthropic's Claude**. 
+An event-driven, serverless quantitative AI agent deployed on **AWS Lambda** that autonomously executes **day trading strategies** via the **Charles Schwab API** and **Anthropic's Claude**. 
 
-The system runs 24/7 with zero manual intervention, executing structural rebalancing and smart dollar-cost averaging (DCA) based on macro-regime signals. Every decision is logged with full auditability and compliance guardrails.
+The system runs continuously throughout market hours with zero manual intervention, capturing daily intraday profits (2%+, 3%+, 5%+) and systematically redeploying capital for exponential wealth compounding. Every decision is logged with full auditability and compliance guardrails.
 
-**Status:** ✅ **Live and Operational** (September 2026 – Present)  
-**Uptime:** 100% (0 manual interventions required)  
-**Asset Classes:** Equities • Options • Futures • Forex  
+**Status:** ✅ **Live and Operational - Day Trader** (October 2026)  
+**Operating Mode:** Pure Day Trading (No overnight holds)  
+**Max Daily Trades:** 20 per day (high velocity execution)  
+**Profit Targets:** 2%+ • 3%+ • 5%+ (daily capture and reinvest)  
+**Asset Classes:** Equities • ETFs • Fractional Shares (0.001+ precision)  
 **Execution Venue:** Charles Schwab API
 
 ---
@@ -17,42 +19,47 @@ The system implements a **hybrid deterministic-generative architecture**: rigid 
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    EXECUTION FLOW (Weekly)                      │
+│             EXECUTION FLOW (Intraday - Continuous)             │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  1. STRATEGIC OVERLAY (CIO Core)                               │
+│  1. MACRO ANALYSIS (CIO Core) - Daily                          │
 │     ├─ Fetch: VIX, Interest Rates, Fed Policy                  │
 │     ├─ Compute: Market Regime (BULLISH/NEUTRAL/BEARISH)        │
-│     └─ Output: Confidence Score (1-10)                         │
+│     └─ Output: Daily Investment Thesis + Confidence (1-10)     │
 │                          ↓                                      │
-│  2. TACTICAL ALLOCATION (Portfolio Manager)                    │
-│     ├─ Compare: Live holdings vs. target allocation            │
-│     ├─ Emit: Directives (HOLD/BUY/SELL/ROTATE)               │
-│     └─ Output: Sector & asset class rebalancing targets        │
+│  2. PROFIT-TAKING SCAN (Portfolio Manager - Continuous)        │
+│     ├─ Scan: All active holdings for daily gains               │
+│     ├─ Check: Position +2%? +3%? +5%?                          │
+│     ├─ Action: SELL holdings hitting profit targets            │
+│     └─ Output: Capital freed for redeployment                 │
 │                          ↓                                      │
-│  3. SEMANTIC ASSET SELECTION (Claude API)                      │
-│     ├─ Input: PM directives + active holdings + market context │
-│     ├─ Process: Claude analyzes specific asset fit             │
-│     └─ Output: Structured JSON (symbols, quantities, rationale)│
+│  3. OPPORTUNITY SELECTION (Claude API)                         │
+│     ├─ Input: CIO thesis + freed capital + market opportunities│
+│     ├─ Process: Claude identifies best asset for current regime│
+│     └─ Output: New position to deploy capital                  │
 │                          ↓                                      │
 │  4. DETERMINISTIC RISK GUARDRAILS (8-Level Engine)            │
 │     ├─ Liquidity check (can we trade this volume?)            │
-│     ├─ Concentration validation (no position > 15%)            │
-│     ├─ Daily frequency cap (max 3 trades/day)                 │
+│     ├─ Concentration validation (no position > 25% portfolio)  │
+│     ├─ Daily frequency cap (max 20 trades/day)                │
 │     ├─ NAV-adjusted sizing (position size by portfolio value)  │
-│     ├─ VIX modifier (reduce size in high volatility)          │
+│     ├─ Sector limits relaxed (1.5x for daily rotation)        │
 │     ├─ Order validation (well-formed, executable)             │
 │     ├─ Compliance audit (all rules satisfied?)                │
-│     └─ Authorization (final sign-off before execution)        │
+│     └─ Authorization (automated approval)                     │
 │                          ↓                                      │
-│  5. EXECUTION & TELEMETRY                                      │
+│  5. EXECUTION & REINVESTMENT                                   │
 │     ├─ Route: Orders to Charles Schwab API                    │
+│     ├─ Execute: Sell positions at profit targets              │
+│     ├─ Redeploy: Capital to new opportunity same day          │
 │     ├─ Log: Atomic state to Amazon DynamoDB                   │
 │     ├─ Monitor: Custom metrics to CloudWatch                  │
-│     └─ Alert: Anomaly detection & escalation                  │
+│     └─ Repeat: Continuous cycle throughout market hours       │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Difference (v3.0.42):** System now captures daily intraday profits and systematically reinvests capital for exponential compounding. No overnight holds. Pure day trading mode.
 
 ### Key Architectural Decisions
 
@@ -460,6 +467,27 @@ Augusta, GA | kvmcelveen@outlook.com
 
 ---
 
-**Last Updated:** October 6, 2026  
-**Status:** ✅ Live and Operational  
-**Next Review:** October 13, 2026
+**Last Updated:** October 13, 2026  
+**Status:** ✅ Live and Operational - Day Trader v3.0.42  
+**Operating Model:** Pure Day Trading (Profit-Capture + Reinvestment)  
+**Next Review:** October 20, 2026
+
+---
+
+## 🚀 v3.0.42 Improvements (October 13, 2026)
+
+### Major Changes
+- ✅ **Day Trader Only** - No mode switching, pure daily profit capture
+- ✅ **Profit-Taking Strategy** - Capture 2%+, 3%+, 5%+ daily gains
+- ✅ **Continuous Execution** - Intraday rebalancing (not weekly)
+- ✅ **Capital Compounding** - Daily profits reinvested immediately
+- ✅ **Schwab API Fixed** - Correct endpoint for positions (v3.0.41)
+- ✅ **Fractional Shares** - 0.001+ precision for all trades
+- ✅ **Autonomous Profit Machine** - No human intervention required
+
+### How Wealth Compounds
+- Daily 2% capture = 44% monthly compound returns
+- Daily 3% capture = 95% monthly compound returns
+- Daily 5% capture = 260% monthly compound returns
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed v3.0.42 release notes.
