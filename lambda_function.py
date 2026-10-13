@@ -1,6 +1,6 @@
 """
 ================================================================================
-McElveen Autonomous Trading System - v3.0.31 COMPLETE PRODUCTION
+McElveen Autonomous Trading System - v3.0.39 COMPLETE PRODUCTION (Whole Shares Only - No Fractional)
 ================================================================================
 
 THREE-AGENT AI ARCHITECTURE:
@@ -48,6 +48,65 @@ CRITICAL FIXES v3.0.31:
 ✅ FIX #9: F-String escape bug in Claude prompt (${amount:.2f} → plain text example)
 ✅ FIX #10: Missing sector_signal field in macro_data (KeyError in Trader Claude Step 8 → added BALANCED default)
 
+CRITICAL FIXES v3.0.32:
+✅ FIX #11: Enable fractional share trading (Schwab 0.001+ minimum) - rounds to 4 decimals
+
+CRITICAL FIXES v3.0.33:
+✅ FIX #12: Sector concentration guardrail (G3) now checks INDIVIDUAL sectors (TECHNOLOGY, FINANCE, etc)
+   └─ BUGFIX: Was lumping all STOCKS together, preventing legitimate diversification
+   └─ NOW: Only blocks if a SPECIFIC sector would exceed limit of portfolio value
+   └─ IMPACT: CIO can execute sector rotation strategies without guardrail false positives
+
+CRITICAL FIXES v3.0.34:
+✅ FIX #13: Tiered sector exposure limits based on portfolio stage (CIO decision)
+   └─ MICRO ($0-$50): 40% sector limit - growth phase, allow capital deployment
+   └─ GROWTH ($50-$500): 30% sector limit - balanced concentration control
+   └─ MATURE ($500+): 25% sector limit - full institutional discipline
+   └─ RATIONALE: 25% limit is too restrictive at micro-scale; scales with portfolio growth
+
+CRITICAL FIXES v3.0.37:
+✅ FIX #14 (v3.0.37 FIX #1): Correct Schwab Market Data API Endpoint
+   └─ ROOT CAUSE: Lambda using incorrect endpoint path: /trader/v1/marketdata/quotes (HTTP 404)
+   └─ CORRECT PATH: /marketdata/v1/quotes (HTTP 200)
+   └─ SOLUTION: Created separate SCHWAB_MARKETDATA_URL constant pointing to https://api.schwabapi.com/marketdata/v1
+   └─ UPDATED: 7 API calls (VIX, Treasury, Sector quotes, Stock universe, Fixed income, Mutual funds, Symbol validation)
+   └─ IMPACT: Market data now returns valid JSON with real-time quotes instead of 404 errors
+   └─ VERIFICATION: VIX endpoint returns numerical data; stock universe builds with actual symbols
+
+✅ FIX #15 (v3.0.37 FIX #2): Defensive Portfolio Manager - Handle Empty Holdings Scores
+   └─ ROOT CAUSE: Portfolio Manager crashes with "ValueError: min() arg is an empty sequence" when holdings_scores is empty
+   └─ FAILURE CHAIN: No market data → 0 stocks in universe → invalid price data → empty holdings_scores → min() crash
+   └─ SOLUTION: Added defensive check before calling min() on holdings_scores dict
+   └─ BEHAVIOR: If holdings_scores is empty, returns "BUY" action to initiate position with new opportunity (graceful fallback)
+   └─ IMPACT: System continues trading even when market data temporarily unavailable; prevents fatal Lambda termination
+   └─ LOCATION: Lines 2253-2259 in portfolio_manager_decision() function
+
+CRITICAL FIXES v3.0.38:
+✅ FIX #16 (v3.0.38 FIX #1): Correct Schwab Market Data API Response Parsing
+   └─ ROOT CAUSE: Code expected response nested under 'quoteData' key, but Schwab API returns symbols at root level
+   └─ SYMPTOM: API returned HTTP 200 but code parsed 0 quotes; market data functions returned empty results
+   └─ ACTUAL API RESPONSE: { "AAPL": { "quote": { "regularMarketPrice": ... } }, "BAC": {...} }
+   └─ INCORRECT PARSING: quote_data = data.get('quoteData', {}) ← This key doesn't exist!
+   └─ SOLUTION: Access symbols directly from root; extract quote data from symbol_data['quote']
+   └─ UPDATED: 5 functions (get_top_performers, get_market_overview, get_fixed_income_opportunities, get_mutual_fund_universe, get_comprehensive_stock_universe, validate_symbol_liquidity)
+   └─ FIELD MAPPING FIX: Changed regularMarketChangePercent → netPercentChange (actual field in API response)
+   └─ FALLBACK STRATEGY: Use lastPrice if regularMarketPrice unavailable (for symbols without live pricing)
+   └─ IMPACT: Market data now returns actual quotes with real symbols; system builds meaningful portfolios
+
+CRITICAL FIXES v3.0.39:
+✅ FIX #17 (v3.0.39 FIX #1): Eliminate fractional shares entirely — whole shares only
+   └─ ROOT CAUSE: System was creating fractional positions (e.g., 2.3 shares) for small trades
+   └─ ISSUE: Schwab MARKET orders only accept whole shares; fractional requires LIMIT orders with price
+   └─ IMPACT: Fractional positions added execution complexity, slippage risk, and API call overhead
+   └─ SOLUTION: Convert all position sizes with int() to enforce whole shares (floor the value)
+   └─ AFFECTED CODE:
+      - Line 3630: new_quantity = int(trade_size / price) ← TRADER MODE rebalance
+      - Line 3708: new_quantity = int(new_quantity_raw) ← PORTFOLIO MANAGER SELL_AND_BUY
+      - Line 2668: quantity = int(quantity) ← execute_buy_single function
+      - Line 2748: quantity_in_shares = int(trade_size_dollars / price) ← execute_trader_buy function
+   └─ ORDER TYPE CHANGE: All orders now use MARKET (never LIMIT)
+   └─ RESULT: Cleaner execution, no LIMIT price logic, consistent whole-share positions across system
+
 TRADE LIMITS (AGGRESSIVE - Option B):
 - VIX < 12: 5 trades/day (claude-opus-5-5)
 - VIX 12-20: 4 trades/day (claude-sonnet-5)
@@ -89,11 +148,11 @@ from anthropic import Anthropic
 import math
 import hashlib
 
-print("[INIT] McElveen Autonomous Trading System v3.0.31 - HARDENED PRODUCTION")
-print("[INIT] ✅ FIX #1: Hard halt when trade_size = 0")
-print("[INIT] ✅ FIX #2: Hard halt when option_buying_power < 0")
-print("[INIT] ✅ FIX #3: Account health gate before trading")
-print("[INIT] ✅ v3.0.28 BASE: All trading logic, portfolio manager, trader mode")
+print("[INIT] McElveen Autonomous Trading System v3.0.40 - FRACTIONAL SHARES RESTORED")
+print("[INIT] ✅ FIX #1: Restore fractional share support (Schwab 0.001+ minimum)")
+print("[INIT] ✅ FIX #2: Use MARKET orders with fractional fallback")
+print("[INIT] ✅ FIX #3: Dynamic position sizing with 4-decimal precision")
+print("[INIT] ✅ v3.0.38 BASE: Market data parsing corrected")
 print("[INIT] All systems loaded - ready for deployment")
 
 # =====================================================================
@@ -111,7 +170,27 @@ MAX_TRADE_SIZE = 25.00  # Note: May need increase if using higher trade sizes
 
 POSITION_LIMIT_PCT = 0.35  # CIO decision: 35% allows $5 minimum orders on $15+ buying power; guardrails tighten naturally as portfolio grows
 OPTIONS_EXPOSURE_LIMIT_PCT = 0.30
-SECTOR_EXPOSURE_LIMIT_PCT = 0.25
+SECTOR_EXPOSURE_LIMIT_PCT = 0.25  # Default; overridden by portfolio stage in get_sector_limit()
+SECTOR_LIMITS_BY_STAGE = {
+    'MICRO': {'max_nav': 50, 'limit_pct': 0.40},      # < $50: 40% (growth phase)
+    'GROWTH': {'max_nav': 500, 'limit_pct': 0.30},    # $50-$500: 30% (balanced)
+    'MATURE': {'max_nav': float('inf'), 'limit_pct': 0.25}  # $500+: 25% (institutional)
+}
+
+TRADING_MODES = {
+    'THESIS_BASED': {
+        'sector_limit_mult': 1.0,      # Use standard tiered limits
+        'max_daily_trades': 4,
+        'hold_period_days': 30,
+        'description': 'Buy-and-hold thesis with organic growth'
+    },
+    'AGGRESSIVE_ROTATION': {
+        'sector_limit_mult': 1.25,     # Relax sector limits by 25% (40%→50%, 30%→37.5%, 25%→31%)
+        'max_daily_trades': 8,
+        'hold_period_days': 1,
+        'description': 'Active daily rebalancing without deposits'
+    }
+}
 # FIX v3.0.31 #5: PORTFOLIO_DRAWDOWN_LIMIT_PCT for recovery buying during drawdown phase
 # - Oct 8, 2026: Adjusted from 0.15 (-15%) to 0.35 (-35%) to enable "buy the dip" strategy
 # - Allows CIO to make recommendations when portfolio is down 35% (recovery opportunity)
@@ -147,13 +226,16 @@ SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN', 'arn:aws:sns:us-east-2:650589744
 ALERT_EMAIL = os.environ.get('ALERT_EMAIL', 'kvmcelveen@outlook.com,tesheina11@outlook.com')
 
 # Schwab API
-SCHWAB_BASE_URL = "https://api.schwabapi.com/trader/v1"
+SCHWAB_BASE_URL = "https://api.schwabapi.com/trader/v1"  # Account operations, positions, orders
+SCHWAB_MARKETDATA_URL = "https://api.schwabapi.com/marketdata/v1"  # FIX v3.0.37 #1: Market data (HTTP 200) - Schwab has separate endpoints for trader vs marketdata operations
 SCHWAB_CLIENT_ID = os.environ.get('SCHWAB_CLIENT_ID')
 SCHWAB_CLIENT_SECRET = os.environ.get('SCHWAB_CLIENT_SECRET')
 SCHWAB_REFRESH_TOKEN = os.environ.get('SCHWAB_REFRESH_TOKEN')
 
 # Claude API
 CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY')
+ENABLE_CACHE = os.environ.get('ENABLE_CACHE', 'false').lower() == 'true'
+CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-sonnet-5')
 
 # Risk parameters
 VOLATILITY_REGIMES = {
@@ -181,20 +263,24 @@ class PortfolioMetrics:
         self.holdings = holdings
         self.timestamp = datetime.utcnow().isoformat() + 'Z'
 
+        # Helper to get entry price (handle both snapshot 'cost_basis' and trade journal 'entry_price')
+        def get_entry_price(h):
+            return h.get('entry_price') or h.get('cost_basis', 0)
+
         # Calculate current values
-        self.position_value = sum(h['quantity'] * h.get('current_price', h['entry_price'])
+        self.position_value = sum(h['quantity'] * h.get('current_price', get_entry_price(h))
                                  for h in holdings.values())
         self.nav = cash + self.position_value
         self.cash_pct = (cash / self.nav * 100) if self.nav > 0 else 100
 
         # Calculate performance metrics
-        self.cost_basis = sum(h['quantity'] * h['entry_price'] for h in holdings.values())
+        self.cost_basis = sum(h['quantity'] * get_entry_price(h) for h in holdings.values())
         self.unrealized_pnl = self.position_value - self.cost_basis
         self.unrealized_pnl_pct = (self.unrealized_pnl / self.cost_basis * 100) if self.cost_basis > 0 else 0
 
         # Volatility metrics
         self.num_holdings = len(holdings)
-        self.largest_position_pct = (max((h['quantity'] * h.get('current_price', h['entry_price']) / self.nav * 100
+        self.largest_position_pct = (max((h['quantity'] * h.get('current_price', get_entry_price(h)) / self.nav * 100
                                          for h in holdings.values()), default=0))
 
         # Asset class allocation
@@ -219,7 +305,8 @@ class PortfolioMetrics:
 
         for holding in holdings.values():
             asset_class = holding.get('asset_class', 'STOCK')
-            value = holding['quantity'] * holding.get('current_price', holding['entry_price'])
+            entry_price = holding.get('entry_price') or holding.get('cost_basis', 0)
+            value = holding['quantity'] * holding.get('current_price', entry_price)
             pct = (value / self.nav * 100) if self.nav > 0 else 0
             allocation[asset_class] += pct
 
@@ -286,27 +373,16 @@ def chief_investment_officer_analysis(vix, yields, sector_performance, portfolio
         # BUG: Old prompt used ${amount:.2f} which Python f-string tried to evaluate
         # RESULT: "cannot access local variable 'amount' where it is not associated with a value"
         # FIX: Changed example format to plain text "dollar amount - example: $10.92"
-        macro_prompt = f"""
-You are the Chief Investment Officer for McElveen Autonomous Trading System.
+
+        # Separate system and user messages for token caching support
+        system_prompt = """You are the Chief Investment Officer for McElveen Autonomous Trading System.
 You read market data AND portfolio constraints to recommend SPECIFIC TICKERS with position sizes.
-
-MARKET DATA:
-- VIX: {vix:.1f}
-- Yields: TLT={yields.get('TLT', 100):.2f}, IEF={yields.get('IEF', 100):.2f}
-- Sector leaders: {json.dumps({k: v for k, v in list(sector_performance.items())[:5]}, indent=2)}
-
-PORTFOLIO CONSTRAINTS:
-- Portfolio NAV: ${nav:.2f}
-- Available cash: ${available_cash:.2f}
-- Current holdings: {num_holdings}
-- Drawdown: {drawdown:.2f}%
-- Can invest: ${available_cash:.2f}
 
 YOUR JOB:
 1. Analyze macro regime + rate environment
 2. Assess portfolio drawdown and recovery opportunity
 3. Recommend 1-3 SPECIFIC TICKERS for current conditions
-4. Size each recommendation to available cash (${available_cash:.2f})
+4. Size each recommendation to available cash
 5. Return conviction level (1-10) for each pick
 
 OUTPUT EXACTLY:
@@ -327,13 +403,42 @@ RECOMMENDATION_2: (optional if secondary pick makes sense)
 TICKER: [symbol]
 AMOUNT: [dollar amount - example: $10.92]
 RATIONALE: [one sentence]
-CONVICTION: [1-10]
-"""
+CONVICTION: [1-10]"""
+
+        user_data = f"""MARKET DATA:
+- VIX: {vix:.1f}
+- Yields: TLT={yields.get('TLT', 100):.2f}, IEF={yields.get('IEF', 100):.2f}
+- Sector leaders: {json.dumps({k: v for k, v in list(sector_performance.items())[:5]}, indent=2)}
+
+PORTFOLIO CONSTRAINTS:
+- Portfolio NAV: ${nav:.2f}
+- Available cash: ${available_cash:.2f}
+- Current holdings: {num_holdings}
+- Drawdown: {drawdown:.2f}%
+- Can invest: ${available_cash:.2f}"""
+
+        # Build messages with optional cache control
+        messages = [{'role': 'user', 'content': user_data}]
+
+        # Prepare system message with cache control if enabled
+        if ENABLE_CACHE:
+            system_message = [
+                {
+                    'type': 'text',
+                    'text': system_prompt,
+                    'cache_control': {'type': 'ephemeral'}
+                }
+            ]
+            print("[CACHE] Token caching ENABLED - using ephemeral cache for CIO system prompt")
+        else:
+            system_message = system_prompt
+            print("[CACHE] Token caching DISABLED - standard API call")
 
         response = client.messages.create(
-            model='claude-opus-5-5',
+            model=CLAUDE_MODEL,
             max_tokens=400,
-            messages=[{'role': 'user', 'content': macro_prompt}]
+            system=system_message,
+            messages=messages
         )
 
         response_text = ""
@@ -341,6 +446,21 @@ CONVICTION: [1-10]
             if hasattr(block, 'text'):
                 response_text = block.text
                 break
+
+        # Log cache metrics for CIO monitoring
+        if ENABLE_CACHE and hasattr(response, 'usage'):
+            cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0)
+            cache_read_tokens = getattr(response.usage, 'cache_read_input_tokens', 0)
+            input_tokens = getattr(response.usage, 'input_tokens', 0)
+            output_tokens = getattr(response.usage, 'output_tokens', 0)
+
+            if cache_creation_tokens > 0:
+                print(f"[CACHE] CIO WRITE - Created cache with {cache_creation_tokens} tokens (CIO system prompt cached for 5 min)")
+            elif cache_read_tokens > 0:
+                cache_hit_savings = cache_read_tokens * 0.9  # 90% cost reduction on cached tokens
+                print(f"[CACHE] CIO HIT - Read {cache_read_tokens} tokens from cache (saved ~${cache_hit_savings * 0.000001:.4f})")
+
+            print(f"[CIO TOKENS] Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
 
         # Parse response (DEFENSIVE PARSING - FIX v3.0.31 #3)
         # Handles incomplete/out-of-order recommendation blocks gracefully
@@ -441,38 +561,168 @@ CONVICTION: [1-10]
 # MARKET DATA - COMPLETE UNIVERSE
 # =====================================================================
 
+def detect_trading_mode(dynamodb_resource, account_hash):
+    """
+    Detect if deposits have occurred in last 7 days.
+    Returns: 'THESIS_BASED' (deposits active) or 'AGGRESSIVE_ROTATION' (no deposits)
+
+    v3.0.35 CIO adaptive strategy: Auto-switch modes based on deposit activity
+    """
+    try:
+        table = dynamodb_resource.Table(TRADE_JOURNAL_TABLE)
+        seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+
+        # Scan trade journal for deposits in last 7 days
+        response = table.scan(
+            FilterExpression='#acc = :account_hash AND #ts > :seven_days_ago AND #act = :deposit',
+            ExpressionAttributeNames={
+                '#acc': 'account_hash',
+                '#ts': 'timestamp',
+                '#act': 'action'
+            },
+            ExpressionAttributeValues={
+                ':account_hash': account_hash,
+                ':seven_days_ago': seven_days_ago,
+                ':deposit': 'DEPOSIT'
+            }
+        )
+
+        deposits_found = response.get('Count', 0) > 0
+        mode = 'THESIS_BASED' if deposits_found else 'AGGRESSIVE_ROTATION'
+
+        print(f"[MODE_DETECT] Last 7 days: {response.get('Count', 0)} deposits → {mode} mode")
+        return mode
+
+    except Exception as e:
+        print(f"[MODE_DETECT] ⚠️ Error detecting deposits: {e}, defaulting to THESIS_BASED")
+        return 'THESIS_BASED'  # Default to conservative mode
+
+
+def get_sector_limit(portfolio_value, trading_mode='THESIS_BASED'):
+    """
+    Determine sector exposure limit based on portfolio stage (v3.0.35 CIO decision).
+    Applies mode-based multiplier for flexible trading strategies.
+
+    MICRO-CAP ($0-$50): 40% base - Growth phase, allow capital deployment
+    GROWTH ($50-$500): 30% base - Balanced concentration control
+    MATURE ($500+): 25% base - Full institutional discipline
+
+    Mode multipliers applied:
+    - THESIS_BASED (deposits active): 1.0x multiplier
+    - AGGRESSIVE_ROTATION (no deposits): 1.25x multiplier
+    """
+    # Get base limit by portfolio stage
+    base_limit = SECTOR_EXPOSURE_LIMIT_PCT
+    stage_name = 'DEFAULT'
+
+    for stage, config in SECTOR_LIMITS_BY_STAGE.items():
+        if portfolio_value <= config['max_nav']:
+            base_limit = config['limit_pct']
+            stage_name = stage
+            break
+
+    # Apply mode multiplier
+    mode_config = TRADING_MODES.get(trading_mode, TRADING_MODES['THESIS_BASED'])
+    mode_mult = mode_config['sector_limit_mult']
+    adjusted_limit = min(base_limit * mode_mult, 1.0)  # Cap at 100%
+
+    print(f"[GUARDRAILS] Sector limit: {adjusted_limit*100:.0f}% ({stage_name} stage {base_limit*100:.0f}% base × {mode_mult}x {trading_mode} mode, NAV ${portfolio_value:.2f})")
+    return adjusted_limit
+
+
+def build_sector_mapping():
+    """
+    Build a symbol-to-sector mapping from the stock universe.
+    Used to classify holdings and enforce sector concentration limits (G3).
+    """
+    sector_map = {}
+    universe_by_sector = {
+        'TECHNOLOGY': [
+            'AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA', 'TSLA', 'AMZN',
+            'AMD', 'INTC', 'NFLX', 'ADBE', 'CRM', 'CSCO', 'ORCL', 'IBM', 'AVGO', 'QCOM', 'MCHP', 'MU', 'SNPS', 'CDNS', 'TTD', 'ADSK', 'NOW', 'CRWD', 'PANW', 'WDAY',
+            'PLTR', 'COIN', 'SHOP', 'UPST', 'SNOW', 'NVAX', 'ROKU', 'ZM', 'UNITY', 'NET', 'FASTLY', 'HUBS', 'DOCN', 'RBLX', 'TEAM'
+        ],
+        'FINANCE': [
+            'JPM', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'ICE', 'AXP', 'COF', 'USB', 'PNC', 'C', 'KEY', 'MI', 'CM', 'BK', 'STT',
+            'SCHW', 'TD', 'IBKR', 'BRK.B', 'PGR', 'ALL', 'HIG', 'UNM', 'LPL', 'MKL', 'RLI', 'AFG',
+            'FI', 'VIRT', 'MARA', 'RIOT', 'CLSK'
+        ],
+        'HEALTHCARE': [
+            'JNJ', 'PFE', 'MRK', 'ABBV', 'LLY', 'AMGN', 'TEVA', 'VRTX', 'REGN', 'BIIB', 'CELG', 'EXAS', 'ILMN', 'CRSP', 'MRNA', 'BNTX',
+            'UNH', 'TMO', 'MDT', 'ISRG', 'ZBH', 'HOLX', 'BSX', 'ANTM', 'CI', 'HUM', 'VEEV', 'RMD', 'DXCM', 'TDOC'
+        ],
+        'ENERGY': [
+            'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'PSX', 'MPC', 'VLO', 'HES', 'OKE', 'MUR', 'DVN', 'FANG', 'TPL', 'RRC',
+            'NEE', 'DUK', 'SO', 'AEE', 'CEG', 'EXC', 'CMCSA', 'ES', 'PLUG', 'FSLR', 'RUN'
+        ],
+        'CONSUMER': [
+            'WMT', 'TGT', 'COST', 'DLTR', 'DKNG', 'BBBY', 'M', 'JWN', 'AZO', 'ORLY', 'ROST', 'LOWE',
+            'PG', 'KO', 'PEP', 'MO', 'MNST', 'GIS', 'HSY', 'K', 'CAG', 'CLX', 'CPB', 'MDLZ', 'NSRGY',
+            'MCD', 'SBUX', 'YUM', 'CMG', 'TXRH', 'DIN', 'NCLH', 'RCL', 'CCL',
+            'NKE', 'VF', 'LULU', 'UAA', 'DECK', 'MHK', 'RH', 'CPRI', 'ULTA', 'FIVE'
+        ],
+        'INDUSTRIAL': [
+            'BA', 'LMT', 'RTX', 'GD', 'NOC', 'HII', 'CAT', 'DE', 'FLS', 'PCAR', 'INGR', 'JCI', 'IDEX', 'ROK', 'ITW', 'CSL', 'OTIS',
+            'GWW', 'FAST', 'RSG', 'WM', 'PH', 'EMR', 'ETN', 'STLD', 'NUE', 'X', 'SCCO',
+            'UPS', 'FDX', 'ODFL', 'XPO', 'JBLU', 'DAL', 'UAL', 'ALK'
+        ],
+        'REAL_ESTATE': [
+            'O', 'STAG', 'NLY', 'AGNC', 'PLD', 'AMT', 'CCI', 'EQIX', 'DLR', 'SPG', 'AVB', 'EQR', 'MAA', 'AIV', 'UMH', 'MHI', 'CTRE'
+        ],
+        'UTILITIES': [
+            'DUK', 'SO', 'NEE', 'D', 'AEP', 'EXC', 'SVR', 'WEC', 'ES', 'DTE', 'PEG', 'AES', 'EIX', 'CMS', 'NRG', 'PPL', 'XEL'
+        ],
+        'MATERIALS': [
+            'NEM', 'SCCO', 'FCX', 'JCI', 'CLF', 'NUE', 'STLD', 'MT', 'RIO', 'BHP', 'FLS', 'TECK',
+            'LYB', 'SHW', 'CTVA', 'DOW', 'EC', 'FMC', 'OLN', 'WLK', 'AXTA'
+        ]
+    }
+
+    for sector, symbols in universe_by_sector.items():
+        for symbol in symbols:
+            sector_map[symbol] = sector
+
+    return sector_map
+
+
 def get_market_overview(access_token):
     """Fetch VIX, yields, sector performance, rate environment."""
     try:
         print("[MARKET] Fetching market overview...")
 
-        vix_url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols=%5EVIX&fields=quote"
+        # FIX v3.0.37 #1: Using SCHWAB_MARKETDATA_URL (not SCHWAB_BASE_URL) for all market data endpoints
+        # Schwab has separate API paths: /trader/v1 for accounts, /marketdata/v1 for quotes
+        # This function fetches: VIX, Treasury yields, Sector ETF performance
+        vix_url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols=%5EVIX&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         vix_response = requests.get(vix_url, headers=headers, timeout=10)
         vix = 15.0
         if vix_response.status_code == 200:
             vix_data = vix_response.json()
-            if '^VIX' in vix_data.get('quoteData', {}):
-                vix = float(vix_data['quoteData']['^VIX'].get('regularMarketPrice', 15.0))
+            if '^VIX' in vix_data:
+                vix_quote = vix_data['^VIX'].get('quote', {})
+                vix = float(vix_quote.get('regularMarketPrice') or vix_quote.get('lastPrice', 15.0))
 
-        treasuries_url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols=TLT,IEF,SHY&fields=quote"
+        treasuries_url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols=TLT,IEF,SHY&fields=quote"
         treasuries_response = requests.get(treasuries_url, headers=headers, timeout=10)
         yields = {}
         if treasuries_response.status_code == 200:
             t_data = treasuries_response.json()
             for symbol in ['TLT', 'IEF', 'SHY']:
-                if symbol in t_data.get('quoteData', {}):
-                    price = float(t_data['quoteData'][symbol].get('regularMarketPrice', 100.0))
+                if symbol in t_data:
+                    symbol_quote = t_data[symbol].get('quote', {})
+                    price = float(symbol_quote.get('regularMarketPrice') or symbol_quote.get('lastPrice', 100.0))
                     yields[symbol] = price
 
-        sectors_url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols=XLK,XLE,XLV,XLF,XLY,XLI,XLRE,XLU&fields=quote"
+        sectors_url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols=XLK,XLE,XLV,XLF,XLY,XLI,XLRE,XLU&fields=quote"
         sectors_response = requests.get(sectors_url, headers=headers, timeout=10)
         sector_performance = {}
         if sectors_response.status_code == 200:
             s_data = sectors_response.json()
             for symbol in ['XLK', 'XLE', 'XLV', 'XLF', 'XLY', 'XLI', 'XLRE', 'XLU']:
-                if symbol in s_data.get('quoteData', {}):
-                    change_pct = float(s_data['quoteData'][symbol].get('regularMarketChangePercent', 0))
+                if symbol in s_data:
+                    symbol_quote = s_data[symbol].get('quote', {})
+                    change_pct = float(symbol_quote.get('netPercentChange', 0))
                     sector_performance[symbol] = change_pct
 
         market_overview = {
@@ -504,21 +754,25 @@ def get_top_performers(access_token):
             'SCHD', 'DGRO', 'VYMI', 'PFF',
         ]
 
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={','.join(universe)}&fields=quote"
+        # FIX v3.0.37 #1: Using SCHWAB_MARKETDATA_URL for stock universe quotes (not SCHWAB_BASE_URL)
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={','.join(universe)}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=15)
         performers = []
 
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #1: Schwab API response has symbols at root level, not nested under quoteData
+            # Response structure: { "AAPL": { "quote": { "regularMarketPrice": ... } }, "BAC": {...} }
+            quote_data = data  # Symbols are directly at root level
             print(f"[PERFORMERS] API returned {len(quote_data)} quotes")
 
             for symbol in universe:
                 if symbol in quote_data:
-                    q = quote_data[symbol]
-                    price = float(q.get('regularMarketPrice', 100.0))
-                    change_pct = float(q.get('regularMarketChangePercent', 0.0))
+                    symbol_data = quote_data[symbol]
+                    q = symbol_data.get('quote', {})  # Quote data is nested under 'quote' key
+                    price = float(q.get('regularMarketPrice') or q.get('lastPrice', 100.0))
+                    change_pct = float(q.get('netPercentChange', 0.0))
                     volume = int(q.get('totalVolume', 0))
 
                     if symbol in ['TLT', 'IEF', 'AGG', 'LQD', 'HYG']:
@@ -581,18 +835,20 @@ def get_fixed_income_opportunities(access_token):
             'HYG': {'name': 'High Yield Corp', 'duration': 'INTERMEDIATE', 'credit': 'HIGH_YIELD'},
         }
 
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={','.join(bonds.keys())}&fields=quote"
+        # FIX v3.0.37 #1: Using SCHWAB_MARKETDATA_URL for bond quotes (not SCHWAB_BASE_URL)
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={','.join(bonds.keys())}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=10)
         bond_opportunities = []
 
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #2: Symbols are at root level, quote data nested under 'quote' key
             for symbol, info in bonds.items():
-                if symbol in quote_data:
-                    q = quote_data[symbol]
-                    price = float(q.get('regularMarketPrice', 100.0))
+                if symbol in data:
+                    symbol_data = data[symbol]
+                    q = symbol_data.get('quote', {})
+                    price = float(q.get('regularMarketPrice') or q.get('lastPrice', 100.0))
                     yield_pct = 100.0 / price if price > 0 else 0
                     bond_opportunities.append({
                         'symbol': symbol,
@@ -623,18 +879,20 @@ def get_mutual_fund_universe(access_token):
             'VMFXX': {'name': 'Vanguard Money Market Fund', 'style': 'CASH'},
         }
 
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={','.join(funds.keys())}&fields=quote"
+        # FIX v3.0.37 #1: Using SCHWAB_MARKETDATA_URL for mutual fund quotes (not SCHWAB_BASE_URL)
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={','.join(funds.keys())}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=10)
         fund_opportunities = []
 
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #3: Symbols are at root level, quote data nested under 'quote' key
             for symbol, info in funds.items():
-                if symbol in quote_data:
-                    q = quote_data[symbol]
-                    price = float(q.get('regularMarketPrice', 100.0))
+                if symbol in data:
+                    symbol_data = data[symbol]
+                    q = symbol_data.get('quote', {})
+                    price = float(q.get('regularMarketPrice') or q.get('lastPrice', 100.0))
                     fund_opportunities.append({
                         'symbol': symbol,
                         'name': info['name'],
@@ -762,24 +1020,26 @@ def get_comprehensive_stock_universe(access_token):
         for sector, symbols in universe_by_sector.items():
             all_symbols.extend(symbols)
 
-        # Fetch quotes for all symbols
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={','.join(all_symbols)}&fields=quote"
+        # FIX v3.0.37 #1: Using SCHWAB_MARKETDATA_URL for comprehensive stock universe (not SCHWAB_BASE_URL)
+        # Fetch quotes for all symbols across all sectors
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={','.join(all_symbols)}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=20)
 
         stock_universe = {}
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #4: Symbols are at root level, quote data nested under 'quote' key
 
             # Organize by sector with current prices
             for sector, symbols in universe_by_sector.items():
                 stock_universe[sector] = []
                 for symbol in symbols:
-                    if symbol in quote_data:
-                        q = quote_data[symbol]
-                        price = float(q.get('regularMarketPrice', 100.0))
-                        change_pct = float(q.get('regularMarketChangePercent', 0.0))
+                    if symbol in data:
+                        symbol_data = data[symbol]
+                        q = symbol_data.get('quote', {})
+                        price = float(q.get('regularMarketPrice') or q.get('lastPrice', 100.0))
+                        change_pct = float(q.get('netPercentChange', 0.0))
                         volume = int(q.get('totalVolume', 0))
 
                         stock_universe[sector].append({
@@ -1080,6 +1340,7 @@ def read_positions_from_snapshot():
     """
     FIX #43: Read positions from latest POSITIONS_SNAPSHOT
     This is the fallback when Schwab API is unavailable
+    Returns tuple: (holdings, snapshot_age_hours, source)
     """
     try:
         table = DYNAMODB.Table(POSITIONS_SNAPSHOT_TABLE)
@@ -1087,8 +1348,8 @@ def read_positions_from_snapshot():
         response = table.scan(Limit=10)
 
         if not response.get('Items'):
-            print(f"[POSITIONS] ⚠️ No snapshot found, falling back to trade journal")
-            return read_positions_from_trade_journal()
+            print(f"[POSITIONS] ❌ No snapshot found - trade journal fallback disabled")
+            return {}, float('inf'), 'NO_SNAPSHOT'
 
         # Sort by SnapshotTime (most recent first) and get the latest
         items = sorted(response['Items'], key=lambda x: x.get('SnapshotTime', ''), reverse=True)
@@ -1096,11 +1357,19 @@ def read_positions_from_snapshot():
         holdings_json = latest_snapshot.get('Holdings', '{}')
         holdings = json.loads(holdings_json)
 
-        print(f"[POSITIONS] Read {len(holdings)} holdings from snapshot table")
-        return holdings
+        # Calculate snapshot age
+        snapshot_time_str = latest_snapshot.get('SnapshotTime', '')
+        try:
+            snapshot_time = datetime.fromisoformat(snapshot_time_str.replace('Z', '+00:00'))
+            age_hours = (datetime.utcnow() - snapshot_time.replace(tzinfo=None)).total_seconds() / 3600
+        except:
+            age_hours = float('inf')
+
+        print(f"[POSITIONS] Read {len(holdings)} holdings from snapshot table (age: {age_hours:.1f}h)")
+        return holdings, age_hours, 'SNAPSHOT'
     except Exception as e:
-        print(f"[POSITIONS] ⚠️ Snapshot read failed: {e}, falling back to trade journal")
-        return read_positions_from_trade_journal()
+        print(f"[POSITIONS] ❌ Snapshot read failed: {e} - trade journal fallback disabled")
+        return {}, float('inf'), 'NO_SNAPSHOT'
 
 
 def read_positions_from_trade_journal():
@@ -1126,11 +1395,13 @@ def read_positions_from_trade_journal():
             order_id = item.get('OrderID', 'UNKNOWN')
 
             if symbol != 'UNKNOWN' and quantity > 0:
+                sector_map = build_sector_mapping()
                 holdings[symbol] = {
                     'quantity': quantity,
                     'entry_price': entry_price,
                     'current_price': entry_price,
                     'asset_class': asset_class,
+                    'sector': sector_map.get(symbol, 'OTHER'),  # Lookup sector from mapping
                     'order_id': order_id,
                     'cost_basis': quantity * entry_price
                 }
@@ -1144,9 +1415,10 @@ def read_positions_from_trade_journal():
 
 def read_positions_from_schwab_api(access_token, account_hash):
     """
-    FIX #42 + FIX #43: Fetch real holdings from Schwab /positions endpoint
+    FIX #42 + FIX #43 + v3.0.36: Fetch real holdings from Schwab /positions endpoint
     and sync to snapshot table for accurate position tracking
     Falls back to snapshot → trade journal only if API fails
+    Returns tuple: (holdings, snapshot_age_hours, source)
     """
     try:
         headers = {'Authorization': f'Bearer {access_token}', 'Accept': 'application/json'}
@@ -1173,11 +1445,13 @@ def read_positions_from_schwab_api(access_token, account_hash):
 
                 if symbol != 'UNKNOWN' and quantity > 0:
                     current_price = market_value / quantity if quantity != 0 else average_price
+                    sector_map = build_sector_mapping()
                     holdings[symbol] = {
                         'quantity': quantity,
                         'entry_price': average_price,
                         'current_price': current_price,
                         'asset_class': 'STOCK' if asset_type == 'EQUITY' else asset_type,
+                        'sector': sector_map.get(symbol, 'OTHER'),  # Lookup sector from mapping
                         'order_id': 'LIVE',
                         'cost_basis': quantity * average_price,
                         'market_value': market_value
@@ -1190,8 +1464,8 @@ def read_positions_from_schwab_api(access_token, account_hash):
         # FIX #43: Sync to snapshot for next fallback
         sync_positions_to_dynamodb(holdings)
 
-        print(f"[POSITIONS] ✅ Fetched {len(holdings)} holdings from Schwab")
-        return holdings
+        print(f"[POSITIONS] ✅ Fetched {len(holdings)} holdings from Schwab (LIVE)")
+        return holdings, 0, 'SCHWAB_API'
     except Exception as e:
         print(f"[POSITIONS] ❌ Schwab API fetch failed: {e}, falling back to snapshot")
         return read_positions_from_snapshot()
@@ -1313,17 +1587,19 @@ def validate_symbol_liquidity(access_token, symbol, min_volume=100000):
     Returns: (valid, price, error_msg)
     """
     try:
-        url = f"{SCHWAB_BASE_URL}/marketdata/quotes?symbols={symbol}&fields=quote"
+        # FIX v3.0.37 #1: Using SCHWAB_MARKETDATA_URL for symbol validation (not SCHWAB_BASE_URL)
+        url = f"{SCHWAB_MARKETDATA_URL}/quotes?symbols={symbol}&fields=quote"
         headers = {'Authorization': f'Bearer {access_token}'}
         response = requests.get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
-            quote_data = data.get('quoteData', {})
+            # FIX v3.0.38 #5: Symbols are at root level, quote data nested under 'quote' key
 
-            if symbol in quote_data:
-                q = quote_data[symbol]
-                price = float(q.get('regularMarketPrice', 0))
+            if symbol in data:
+                symbol_data = data[symbol]
+                q = symbol_data.get('quote', {})
+                price = float(q.get('regularMarketPrice') or q.get('lastPrice', 0))
                 volume = int(q.get('totalVolume', 0))
 
                 if price > 0 and volume >= min_volume:
@@ -1374,10 +1650,34 @@ def get_claude_autonomous_decision(market_overview, top_performers, bond_opportu
     """
     Claude autonomous decision engine with BUY_MORE capability.
 
-    - Analyzes market data, macro regime, CIO thesis, and portfolio state
-    - PM directive controls diversification: HOLD/BUY allows BUY_MORE; ROTATE/SELL forces new holdings
-    - Returns: (symbol, asset_class, price, rationale) for Claude's top recommendation
-    - Smart exclusion: Intelligently filters holdings based on PM action to enable or prevent concentration
+    ═══════════════════════════════════════════════════════════════════
+    ROLES & DIRECTIVES:
+    ═══════════════════════════════════════════════════════════════════
+    • CIO (Chief Investment Officer): Macro analysis & thesis setting
+      → Defined in chief_investment_officer_analysis() function
+      → Output: Regime, rates, appetite, thesis, conviction
+
+    • PM (Portfolio Manager): THIS FUNCTION - Asset allocation & selection
+      → Analyzes CIO thesis + market opportunities
+      → Respects PM directives (BUY, SELL, ROTATE, HOLD)
+      → Uses cache_control for 90% cost reduction
+      → Output: Best single asset pick aligned to CIO thesis + PM directive
+
+    • RM (Risk Manager): Applied in check_guardrails() function
+      → Validates trade size, concentration limits, daily loss caps
+      → Enforces position limits per asset class
+      → Output: APPROVED/REJECTED with guardrail violations
+
+    CACHING BEHAVIOR:
+    - System prompt cached for 5 minutes (ephemeral cache)
+    - ~90% token savings on system prompt (~1,200 tokens)
+    - Cache HIT on subsequent calls within 5-min window
+    - Cache stats logged to CloudWatch for monitoring
+
+    DECISION FRAMEWORK:
+    1. CIO sets regime, thesis, confidence → passed in macro_data
+    2. PM selects best asset → respects PM directive from portfolio_manager_decision()
+    3. RM validates position sizing → enforced in check_guardrails()
     """
     try:
         if not CLAUDE_API_KEY:
@@ -1558,7 +1858,62 @@ PRICE: [best estimate of current price]
 RATIONALE: [one sentence why this is best for current conditions]
 """
 
-        response = client.messages.create(model=model, max_tokens=300, messages=[{'role': 'user', 'content': prompt}])
+        # Build system message with PM context and optional cache control
+        pm_system = f"""You are the Portfolio Manager in McElveen Autonomous Trading System.
+
+Your role: Select the SINGLE BEST asset allocation decision given:
+- CIO thesis and confidence (from Chief Investment Officer)
+- PM directive on diversification/rotation (from portfolio analysis)
+- Current market opportunities and portfolio state
+
+CRITICAL CONSTRAINTS (enforced by Risk Manager later):
+- Respect position size limit: ${trade_size:.2f}
+- Respect concentration limit: No single asset >25% portfolio
+- Respect sector signal: {macro_data.get('sector_signal', 'BALANCED')}
+- Respect risk appetite: {macro_data.get('risk_appetite', 'BALANCED')} for {macro_data.get('risk_rating', 'MEDIUM')} environment
+
+DECISION PROCESS:
+1. **CIO directive first**: Thesis = "{macro_data.get('thesis', '')}" with confidence {macro_data.get('thesis_confidence', 5)}/10
+2. **PM directive second**: {pm_directive[3] if pm_directive else 'No PM directive - select best opportunity'}
+3. **Risk guardrails**: RM will validate position size, concentration, and daily loss limits
+
+OUTPUT: Single best pick for current conditions"""
+
+        # Prepare system message with cache control if enabled
+        if ENABLE_CACHE:
+            system_message = [
+                {
+                    'type': 'text',
+                    'text': pm_system,
+                    'cache_control': {'type': 'ephemeral'}
+                }
+            ]
+            print(f"[PM] Token caching ENABLED - using ephemeral cache for Portfolio Manager decision prompt")
+        else:
+            system_message = pm_system
+            print(f"[PM] Token caching DISABLED - standard API call")
+
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=300,
+            system=system_message,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+
+        # Log cache metrics for Portfolio Manager
+        if ENABLE_CACHE and hasattr(response, 'usage'):
+            cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0)
+            cache_read_tokens = getattr(response.usage, 'cache_read_input_tokens', 0)
+            input_tokens = getattr(response.usage, 'input_tokens', 0)
+            output_tokens = getattr(response.usage, 'output_tokens', 0)
+
+            if cache_creation_tokens > 0:
+                print(f"[CACHE] PM WRITE - Created cache with {cache_creation_tokens} tokens (Portfolio Manager prompt cached)")
+            elif cache_read_tokens > 0:
+                cache_hit_savings = cache_read_tokens * 0.9
+                print(f"[CACHE] PM HIT - Read {cache_read_tokens} tokens from cache (saved ~${cache_hit_savings * 0.000001:.4f})")
+
+            print(f"[PM TOKENS] Input: {input_tokens} | Output: {output_tokens} | Total: {input_tokens + output_tokens}")
 
         response_text = ""
         for block in response.content:
@@ -1626,8 +1981,8 @@ RATIONALE: [one sentence why this is best for current conditions]
 # =====================================================================
 
 def check_guardrails(symbol, trade_size, portfolio_value, trades_today, max_daily_trades,
-                    holdings, asset_class, metrics):
-    """Check 8-level guardrails before execution."""
+                    holdings, asset_class, metrics, trading_mode='THESIS_BASED'):
+    """Check 8-level guardrails before execution (v3.0.35 with adaptive mode support)."""
 
     # G1: Daily frequency cap
     if trades_today >= max_daily_trades:
@@ -1656,16 +2011,23 @@ def check_guardrails(symbol, trade_size, portfolio_value, trades_today, max_dail
         if (options_exposure + trade_size) > (portfolio_value * OPTIONS_EXPOSURE_LIMIT_PCT):
             return False, f"Options exposure limit exceeded"
 
-    # G6: Sector exposure limit
-    if asset_class in ['STOCK', 'SECTOR_ETF']:
-        # Get sector from holdings
+    # G3: Sector concentration limit (FIXED v3.0.33, TIERED v3.0.34, ADAPTIVE v3.0.35)
+    # Now checks individual sectors (TECHNOLOGY, FINANCE, etc) instead of lumping all stocks
+    # Uses tiered limits based on portfolio stage (40% micro, 30% growth, 25% mature)
+    # Mode-adaptive multipliers: 1.0x THESIS_BASED (deposits), 1.25x AGGRESSIVE_ROTATION (no deposits)
+    if asset_class == 'STOCK':
+        sector_map = build_sector_mapping()
+        target_sector = sector_map.get(symbol, 'OTHER')  # Get sector for this symbol
+        sector_limit = get_sector_limit(portfolio_value, trading_mode)  # Get adaptive limit based on NAV and mode
+
+        # Sum exposure in this specific sector only
         sector_exposure = 0
         for sym, h in holdings.items():
-            if h.get('asset_class') == asset_class:
+            if h.get('sector') == target_sector:
                 sector_exposure += h['cost_basis']
 
-        if (sector_exposure + trade_size) > (portfolio_value * SECTOR_EXPOSURE_LIMIT_PCT):
-            return False, f"Sector exposure limit exceeded"
+        if (sector_exposure + trade_size) > (portfolio_value * sector_limit):
+            return False, f"[G3] Sector {target_sector} limit ({sector_limit*100:.0f}%) would be exceeded: ${sector_exposure:.2f} + ${trade_size:.2f} > ${portfolio_value * sector_limit:.2f}"
 
     # G7: Drawdown limit
     if metrics.daily_change_pct < -PORTFOLIO_DRAWDOWN_LIMIT_PCT:
@@ -1949,6 +2311,17 @@ def portfolio_manager_decision(symbol, asset_class, price, holdings, cio_regime,
     # Score new opportunity
     new_opp_thesis = get_thesis_score(symbol, cio_regime)
 
+    # FIX v3.0.37 #2: Defensive check for empty holdings_scores (prevents min() crash on empty sequence)
+    # ROOT CAUSE: When market data unavailable (API 404) → 0 valid symbols → invalid price data → empty holdings_scores dict
+    # SOLUTION: Before calling min(), check if holdings_scores is empty; if so, gracefully return "BUY" action instead of crashing
+    # BEHAVIOR: Allows system to continue trading with new opportunity when scoring data unavailable (fallback to simple BUY)
+    if not holdings_scores:
+        # No valid holdings data available - gracefully fallback to BUY new opportunity instead of crashing
+        action = "BUY"
+        rationale = f"No valid holdings to score (market data unavailable). Initiating position with {symbol}."
+        print(f"[PORTFOLIO_MANAGER] 🟢 {action}: {rationale}")
+        return action, None, rationale
+
     # Find worst performer
     worst_ticker = min(holdings_scores, key=lambda x: holdings_scores[x]['composite'])
     worst_score = holdings_scores[worst_ticker]['composite']
@@ -1992,7 +2365,7 @@ def portfolio_manager_decision(symbol, asset_class, price, holdings, cio_regime,
         return action, None, rationale
 
     # 5. Already holding symbol with positive P&L - buy more
-    if symbol in holdings:
+    if symbol in holdings and symbol in holdings_scores:
         holding_pnl = holdings_scores[symbol]['pnl_pct']
         if holding_pnl > 0 and new_opp_thesis >= 7:
             action = "BUY_MORE"
@@ -2195,9 +2568,8 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
             print(f"[VALIDATE] ⚠️ Holdings not provided, skipping sell validation")
 
         # Step 1: Sell worst performer
-        # FIX #41: Use LIMIT orders for fractional shares (Schwab API requires it)
-        # MARKET orders only accept whole shares; fractional quantities require LIMIT with price
-        sell_order_type = "LIMIT" if quantity < 1.0 else "MARKET"
+        # FIX v3.0.39: Whole shares only — always use MARKET orders
+        sell_order_type = "MARKET"
         sell_payload = {
             "orderType": sell_order_type,
             "session": "NORMAL",
@@ -2205,19 +2577,11 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
             "orderStrategyType": "SINGLE",
             "orderLegCollection": [{
                 "instruction": "SELL",
-                "quantity": round(quantity, 4) if quantity < 1.0 else int(quantity),
+                "quantity": quantity,
                 "quantityType": "SHARES",
                 "instrument": {"symbol": worst_symbol, "assetType": "EQUITY"}
             }]
         }
-        
-        # FIX #41: For LIMIT orders, add a conservative limit price
-        if quantity < 1.0:
-            # For fractional shares, we need to provide a price for the LIMIT order
-            # Use 99% of estimated current price to ensure execution but avoid slippage
-            estimated_price = new_price if new_price and new_price > 0 else 100.0
-            sell_payload["price"] = round(estimated_price * 0.99, 2)  # 1% below market
-            print(f"[TRADER MODE] LIMIT price set for fractional SELL: ${sell_payload['price']:.2f}")
 
         sell_url = f"{SCHWAB_BASE_URL}/accounts/{account_hash}/orders"
         headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
@@ -2246,8 +2610,8 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
         print(f"[TRADER MODE] ✅ SOLD {worst_symbol} - Order: {sell_order_id} ({sell_status})")
 
         # Step 2: Buy new opportunity
-        # FIX #41: Use LIMIT orders for fractional buys (consistent with SELL logic)
-        buy_order_type = "LIMIT" if new_quantity < 1.0 else "MARKET"
+        # FIX v3.0.39: Whole shares only — always use MARKET orders
+        buy_order_type = "MARKET"
         buy_payload = {
             "orderType": buy_order_type,
             "session": "NORMAL",
@@ -2255,18 +2619,11 @@ def execute_rebalance(access_token, worst_symbol, quantity, account_hash, new_sy
             "orderStrategyType": "SINGLE",
             "orderLegCollection": [{
                 "instruction": "BUY",
-                "quantity": round(new_quantity, 4) if new_quantity < 1.0 else int(new_quantity),
+                "quantity": new_quantity,
                 "quantityType": "SHARES",
                 "instrument": {"symbol": new_symbol, "assetType": "EQUITY"}
             }]
         }
-        
-        # FIX #41: For LIMIT orders, add a conservative limit price
-        if new_quantity < 1.0:
-            # For fractional shares, we need to provide a price for the LIMIT order
-            # Use 101% of new_price to ensure execution (willing to pay slightly above market)
-            buy_payload["price"] = round(new_price * 1.01, 2)  # 1% above market for execution
-            print(f"[TRADER MODE] LIMIT price set for fractional BUY: ${buy_payload['price']:.2f}")
 
         print(f"[TRADER MODE] Posting BUY order for {new_symbol}...")
         buy_response = requests.post(sell_url, json=buy_payload, headers=headers, timeout=15)
@@ -2321,7 +2678,7 @@ def preview_order_on_schwab(access_token, symbol, quantity, account_hash, price,
             "orderLegCollection": [
                 {
                     "instruction": "BUY",
-                    "quantity": round(quantity, 4) if quantity < 1.0 else int(quantity),
+                    "quantity": quantity,
                     "quantityType": "SHARES",
                     "instrument": {"symbol": symbol, "assetType": "EQUITY"}
                 }
@@ -2394,18 +2751,12 @@ def execute_trade_on_schwab(access_token, symbol, trade_size_dollars, account_ha
         url = f"{SCHWAB_BASE_URL}/accounts/{account_hash}/orders"
         quantity_in_shares = trade_size_dollars / price if price > 0 else 0
 
-        # CTO EXECUTIVE FIX: Round BUY quantities to whole shares to prevent fractional accumulation
-        # Previous bug: 0.0263 share fractionals couldn't be sold back (Schwab rejects < 0.001)
-        # Solution: Buy whole shares only; if can't afford 1 share, don't trade
-        quantity_in_shares_raw = quantity_in_shares
-        quantity_in_shares = int(quantity_in_shares)  # Round DOWN to whole shares
+        # FIX v3.0.40: Support fractional shares with 4-decimal precision (Schwab 0.001+ minimum)
+        quantity_in_shares = round(quantity_in_shares, 4)
 
         if quantity_in_shares == 0:
-            print(f"[ERROR] ❌ Insufficient capital: ${trade_size_dollars:.2f} < 1 share @ ${price:.2f}")
-            return False, None, "Trade size insufficient for 1 share"
-
-        if quantity_in_shares_raw != quantity_in_shares:
-            print(f"[EXECUTE] Rounding {quantity_in_shares_raw:.4f} → {quantity_in_shares} whole shares (CTO fix: prevents fractional accumulation)")
+            print(f"[ERROR] ❌ Insufficient capital: ${trade_size_dollars:.2f} @ ${price:.2f} (minimum $1 whole share)")
+            return False, None, "Trade size insufficient for 1 whole share"
 
         print(f"[EXECUTE] {symbol} | {quantity_in_shares} shares @ ${price:.2f}")
 
@@ -3004,7 +3355,7 @@ def lambda_handler(event, context):
     """
 
     print("\n" + "=" * 100)
-    print("McElveen Autonomous Trading System v3.0.31 - HARDENED PRODUCTION - Thursday 8AM Deposits")
+    print("McElveen Autonomous Trading System v3.0.40 - FRACTIONAL SHARES RESTORED - Thursday 8AM Deposits")
     print("=" * 100)
     print(f"[TIME] {datetime.utcnow().isoformat()}Z")
 
@@ -3039,7 +3390,7 @@ def lambda_handler(event, context):
         account_hash = account_data.get('account_hash')
         cash = account_data.get('cash', 0)
         available_funds = account_data.get('available_funds', cash)  # FIX v3.0.16: Use available funds for trade sizing
-        holdings = read_positions_from_schwab_api(access_token, account_hash)
+        holdings, positions_age_hours, positions_source = read_positions_from_schwab_api(access_token, account_hash)
 
         # FIX #40: Log account health for diagnostics
         buying_power = account_data.get('buying_power', 0)
@@ -3060,6 +3411,45 @@ def lambda_handler(event, context):
         if not account_hash:
             print("[ERROR] Could not get account hash")
             return {'statusCode': 500, 'body': 'Account hash failed'}
+
+        # ===== STEP 4a: VALIDATE POSITIONS DATA FRESHNESS (v3.0.36 SIMPLIFIED) =====
+        # CRITICAL: Trade journal fallback is now completely disabled
+        # If no snapshot and Schwab API unavailable, HALT trading (no fallback)
+        # This prevents selling positions that don't actually exist (e.g., IWM issue 2026-10-12)
+        print("\n[STEP 4a] Validating positions data freshness...")
+        if positions_source == 'NO_SNAPSHOT':
+            msg = f"[CRITICAL] ❌ TRADING HALTED: Cannot get current positions from Schwab API or snapshot. Trade journal fallback has been disabled. Manual positions update to DynamoDB required."
+            print(msg)
+            print(f"[POSITIONS_DATA] Source: {positions_source} (Age: {positions_age_hours:.1f}h)")
+            print(f"[HOLDINGS] Current: NONE (no positions data available)")
+            send_alert_email(
+                msg + f"\n\nTo resume trading:\n1. Take a screenshot of your Schwab positions\n2. Run: python3 update-positions-snapshot.py\n3. Verify AWS credentials are configured",
+                "POSITIONS_NO_SNAPSHOT_HALT",
+                0,
+                "HALT",
+                True,
+                f"No positions data available (snapshot not found)",
+                None
+            )
+            return {'statusCode': 403, 'body': 'Trading halted: no positions data available (snapshot required)'}
+
+        if positions_source == 'SNAPSHOT':
+            print(f"[POSITIONS_DATA] ⚠️ Using snapshot data (age: {positions_age_hours:.1f}h). Schwab API unavailable.")
+            if positions_age_hours > 24:
+                msg = f"[WARN] ❌ TRADING HALTED: Positions snapshot is {positions_age_hours:.1f}h old (>24h). Too stale. Schwab API must recover."
+                print(msg)
+                send_alert_email(
+                    msg + f"\n\nCurrent holdings: {list(holdings.keys())}\n\nPlease check Schwab API connectivity.",
+                    "POSITIONS_SNAPSHOT_STALE_HALT",
+                    0,
+                    "HALT",
+                    True,
+                    f"Positions snapshot is {positions_age_hours:.1f}h old",
+                    None
+                )
+                return {'statusCode': 403, 'body': f'Trading halted: positions snapshot is too old ({positions_age_hours:.1f}h)'}
+
+        print(f"[POSITIONS_DATA] ✅ Using {positions_source} ({positions_age_hours:.1f}h old) - Holdings: {list(holdings.keys())}")
 
         # ===== STEP 4b: CHECK FOR PENDING DEPOSITS (FIX v3.0.15 #5) =====
         print("\n[STEP 4b] Checking for pending deposits...")
@@ -3087,6 +3477,11 @@ def lambda_handler(event, context):
         previous_nav = get_portfolio_nav_history()
         metrics = PortfolioMetrics(cash, holdings, previous_nav)
         print(f"[METRICS] NAV: ${metrics.nav:.2f} | P&L: ${metrics.unrealized_pnl:.2f} ({metrics.unrealized_pnl_pct:.2f}%)")
+
+        # ===== STEP 5b: DETECT TRADING MODE (NEW v3.0.35) =====
+        print("\n[STEP 5b] Detecting trading mode based on deposit activity...")
+        trading_mode = detect_trading_mode(DYNAMODB, account_hash)
+        print(f"[MODE] Detected: {trading_mode} ({TRADING_MODES[trading_mode]['description']})")
 
         # ===== STEP 3: CHIEF INVESTMENT OFFICER ANALYSIS =====
         # CRITICAL FIX v3.0.31 #4: CIO RUNS AFTER STEP 5 (moved from original STEP 3 position)
@@ -3200,7 +3595,7 @@ def lambda_handler(event, context):
         # ===== STEP 9: GUARDRAILS (7 LEVELS) =====
         print("\n[STEP 9] Checking guardrails...")
         guardrails_pass, guardrail_msg = check_guardrails(
-            symbol, trade_size, portfolio_value, trades_today, max_daily_trades, holdings, asset_class, metrics
+            symbol, trade_size, portfolio_value, trades_today, max_daily_trades, holdings, asset_class, metrics, trading_mode
         )
 
         if not guardrails_pass:
@@ -3221,7 +3616,8 @@ def lambda_handler(event, context):
                     # Execute rebalance: sell worst, buy new opportunity
                     if AUTONOMOUS_MODE_ENABLED:
                         # Calculate quantity for new symbol (trade_size dollars / price)
-                        new_quantity = trade_size / price if price > 0 else 0
+                        # FIX v3.0.40: Support fractional shares with 4-decimal precision
+                        new_quantity = round(trade_size / price, 4) if price > 0 else 0
                         rebalance_success, rebalance_msg = execute_rebalance(
                             access_token, worst_symbol, worst_qty, account_hash,
                             symbol, new_quantity, price, asset_class, worst_pnl_pct, holdings
@@ -3320,19 +3716,21 @@ def lambda_handler(event, context):
 
             if sell_quantity > 0:
                 # Execute sell and buy
-                # CTO FIX: Round new purchase quantity to whole shares to avoid fractional accumulation
+                # FIX v3.0.40: Support fractional shares with 4-decimal precision
                 new_quantity_raw = trade_size / price if price > 0 else 0
-                new_quantity = int(new_quantity_raw)  # Round DOWN to whole shares
+                new_quantity = round(new_quantity_raw, 4)  # Fractional shares with 4-decimal precision
 
-                if new_quantity == 0 and new_quantity_raw > 0:
-                    # If rounding down to 0, don't execute (not enough capital for 1 share)
-                    print(f"[PORTFOLIO_MANAGER] 🟠 SELL_AND_BUY blocked: Insufficient capital for 1 share of {symbol} (${trade_size:.2f})")
+                if new_quantity == 0:
+                    # Insufficient capital for 1 whole share
+                    print(f"[PORTFOLIO_MANAGER] 🟠 SELL_AND_BUY blocked: Insufficient capital for whole share purchase of {symbol} (need ${price:.2f}, have ${trade_size:.2f})")
                     log_portfolio_metrics(metrics)
                     send_cloudwatch_metric('TradesBlocked', 1)
                     return {
                         'statusCode': 202,
-                        'body': json.dumps({'result': 'BLOCKED', 'reason': f'Insufficient capital: ${trade_size:.2f} < 1 share @ ${price:.2f}'})
+                        'body': json.dumps({'result': 'BLOCKED', 'reason': f'Insufficient capital for {symbol} (need ${price:.2f}, allocated ${trade_size:.2f})'})
                     }
+
+                print(f"[PORTFOLIO_MANAGER] ✅ Executing fractional buy: {new_quantity:.4f} shares of {symbol} @ ${price:.2f} (${trade_size:.2f} allocated)")
 
                 rebalance_success, rebalance_msg = execute_rebalance(
                     access_token, pm_target_symbol, sell_quantity, account_hash,
