@@ -48,3 +48,12 @@ logs/
 
 # Deployment packages (can be regenerated from source)
 *.zip
+
+# Build artifacts
+lambda-layer-build/
+mcelveen-lambda-package/
+mcelveen-layer/
+mcelveen-dependencies-layer*.zip
+mcelveen-v3.0.36-deployment.zip
+CREATE_LAMBDA_PACKAGE.ps1
+update-positions-snapshot.py
