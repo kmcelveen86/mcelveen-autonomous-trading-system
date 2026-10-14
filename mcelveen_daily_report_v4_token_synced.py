@@ -221,11 +221,10 @@ def get_today_trades():
         print("[INFO] Fetching today's trades from DynamoDB...")
         today_date = datetime.utcnow().strftime("%Y-%m-%d")
 
-        # Query trades table for today
-        response = trades_table.query(
-            KeyConditionExpression="trade_date = :date",
-            ExpressionAttributeValues={":date": today_date},
-            ScanIndexForward=False  # Most recent first
+        # Scan trades table (no partition key available for query)
+        response = trades_table.scan(
+            FilterExpression="trade_date = :date",
+            ExpressionAttributeValues={":date": today_date}
         )
 
         trades = response.get("Items", [])
