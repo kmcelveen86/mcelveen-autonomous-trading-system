@@ -3160,9 +3160,10 @@ def execute_trade_on_schwab(access_token, symbol, trade_size_dollars, account_ha
 # =====================================================================
 
 def log_execution_to_dynamodb(symbol, trade_size_dollars, order_id, asset_class, price):
-    """Log ONLY successful, verified trades to DynamoDB."""
+    """Log ONLY successful, verified trades to DynamoDB (DYNAMODB_TRADES_TABLE).
+    FIX: Changed from TRADE_JOURNAL_TABLE (disabled) to trades_table"""
     try:
-        table = DYNAMODB.Table(TRADE_JOURNAL_TABLE)
+        table = DYNAMODB.Table(DYNAMODB_TRADES_TABLE)
 
         timestamp = datetime.utcnow().isoformat() + 'Z'
         trade_date = datetime.utcnow().strftime('%Y-%m-%d')
@@ -3185,7 +3186,7 @@ def log_execution_to_dynamodb(symbol, trade_size_dollars, order_id, asset_class,
         }
 
         table.put_item(Item=item)
-        print(f"[LOGGING] ✅ Logged to DynamoDB (OrderID: {order_id})")
+        print(f"[LOGGING] ✅ Logged to DynamoDB trades_table (OrderID: {order_id})")
         return True
 
     except Exception as e:
