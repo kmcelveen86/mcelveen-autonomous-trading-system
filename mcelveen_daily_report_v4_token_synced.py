@@ -238,6 +238,43 @@ def get_today_trades():
         return []
 
 
+def get_positions_from_dynamodb():
+    """Get all current positions from DynamoDB positions snapshot (synced by trading system)"""
+
+    try:
+        print("[INFO] Fetching positions from DynamoDB positions snapshot...")
+
+        response = positions_table.scan()
+        positions = []
+        positions_map = {}
+
+        for item in response.get("Items", []):
+            # Trading system syncs: symbol, quantity, current_price, market_value, entry_date
+            symbol = item.get("symbol", "")
+            quantity = item.get("quantity", 0)
+            current_price = item.get("current_price", 0)
+            market_value = item.get("market_value", 0)
+            entry_date = item.get("entry_date", "")
+
+            if symbol and quantity > 0:
+                # Format position like Schwab API response
+                positions.append({
+                    "symbol": symbol,
+                    "quantity": quantity,
+                    "current_price": current_price,
+                    "market_value": market_value,
+                    "entry_date": entry_date
+                })
+                positions_map[symbol] = entry_date
+
+        print(f"[INFO] ✅ Loaded {len(positions)} position(s) from DynamoDB")
+        return positions, positions_map
+
+    except Exception as e:
+        print(f"[WARN] ⚠️  Could not fetch positions from DynamoDB: {str(e)}")
+        return [], {}
+
+
 def get_position_entry_dates():
     """Get entry dates for all current positions from position snapshot table"""
 
@@ -589,10 +626,13 @@ def lambda_handler(event, context):
         print(f"[ERROR] {error_msg}")
         return {"statusCode": 500, "body": json.dumps({"error": error_msg})}
 
-    # STEP 2b: Get today's trades and position entry dates
-    print("\n[STEP 2b] Loading trading activity and position history...")
+    # STEP 2b: Get today's trades and positions from DynamoDB (synced by trading system)
+    print("\n[STEP 2b] Loading trading activity and positions from DynamoDB...")
     today_trades = get_today_trades()
-    positions_map = get_position_entry_dates()
+    db_positions, positions_map = get_positions_from_dynamodb()
+
+    # Merge DynamoDB positions into account_data for P&L calculation
+    account_data["positions"] = db_positions
 
     # STEP 3: Calculate P&L
     print("\n[STEP 3] Calculating P&L with position hold duration...")
