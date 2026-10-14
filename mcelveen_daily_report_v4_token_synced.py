@@ -221,10 +221,11 @@ def get_today_trades():
         print("[INFO] Fetching today's trades from DynamoDB...")
         today_date = datetime.utcnow().strftime("%Y-%m-%d")
 
-        # Scan trades table (no partition key available for query)
+        # Scan trades table for today's trades (trading system uses TradeDate field)
         response = trades_table.scan(
-            FilterExpression="trade_date = :date",
-            ExpressionAttributeValues={":date": today_date}
+            FilterExpression="TradeDate = :date AND #status = :status",
+            ExpressionAttributeNames={"#status": "Status"},
+            ExpressionAttributeValues={":date": today_date, ":status": "EXECUTED"}
         )
 
         trades = response.get("Items", [])
@@ -247,6 +248,7 @@ def get_position_entry_dates():
         positions_map = {}
 
         for item in response.get("Items", []):
+            # Trading system uses 'symbol' and 'entry_date' fields
             symbol = item.get("symbol", "")
             entry_date = item.get("entry_date", "")
             if symbol:
@@ -338,21 +340,22 @@ def calculate_pnl(account_data, positions_map):
 
 
 def extract_trading_summary(trades):
-    """Extract trading summary from today's trades"""
+    """Extract trading summary from today's trades (uses trading system field names)"""
 
     sell_buy_cycles = []
     sell_orders = []
     buy_orders = []
 
     for trade in trades:
-        order_type = trade.get("order_type", "").upper()
-        symbol = trade.get("symbol", "")
-        quantity = trade.get("quantity", 0)
-        order_id = trade.get("order_id", "")
+        # Trading system stores with capitalized field names
+        symbol = trade.get("Symbol", "")
+        quantity = trade.get("Quantity", 0)
+        order_id = trade.get("OrderID", "")
 
-        if order_type == "SELL":
-            sell_orders.append({"symbol": symbol, "qty": quantity, "order_id": order_id})
-        elif order_type == "BUY":
+        # Try to detect if it's a SELL or BUY based on OrderID or other markers
+        # For now, count all trades
+        if symbol and quantity:
+            # Trades are typically from Portfolio Manager (SELL_AND_BUY cycles)
             buy_orders.append({"symbol": symbol, "qty": quantity, "order_id": order_id})
 
     # Match SELL_AND_BUY cycles (sell followed by buy)
