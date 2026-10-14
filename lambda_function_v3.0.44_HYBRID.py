@@ -3444,12 +3444,12 @@ def process_weekly_deposit():
 # G9 GUARDRAIL: OVERNIGHT GAP DETECTION (Auto-Sell if >5% drop)
 # =====================================================================
 
-def check_overnight_gaps(positions_data, previous_prices_map):
+def check_overnight_gaps(holdings, previous_prices_map):
     """
     Detect positions that gapped down >5% overnight
 
     Args:
-        positions_data (list): Current positions from get_portfolio()
+        holdings (dict): Current holdings {symbol: {quantity, current_price, market_value, ...}}
         previous_prices_map (dict): {symbol: previous_close_price} from DynamoDB
 
     Returns:
@@ -3465,13 +3465,14 @@ def check_overnight_gaps(positions_data, previous_prices_map):
     positions_to_sell = []
     gap_details = {}
 
-    for position in positions_data:
+    for symbol, position in holdings.items():
         try:
-            symbol = position.get('instrument', {}).get('symbol', '')
-            current_price = position.get('marketValue', 0) / position.get('longQuantity', 1) if position.get('longQuantity', 0) > 0 else 0
+            current_price = position.get('current_price', 0)
+            quantity = position.get('quantity', 0)
+            market_value = position.get('market_value', 0)
 
             previous_price = previous_prices_map.get(symbol)
-            if not previous_price:
+            if not previous_price or previous_price == 0:
                 continue
 
             gap_pct = ((current_price - previous_price) / previous_price) * 100
@@ -3480,8 +3481,8 @@ def check_overnight_gaps(positions_data, previous_prices_map):
                 'previous_price': previous_price,
                 'current_price': current_price,
                 'gap_pct': gap_pct,
-                'quantity': position.get('longQuantity', 0),
-                'value': position.get('marketValue', 0)
+                'quantity': quantity,
+                'value': market_value
             }
 
             if gap_pct < -5.0:
@@ -3491,7 +3492,7 @@ def check_overnight_gaps(positions_data, previous_prices_map):
                 print(f"[G9] ✅ {symbol} gap {gap_pct:+.2f}% (acceptable)")
 
         except Exception as e:
-            print(f"[G9] Error checking gap for position: {str(e)}")
+            print(f"[G9] Error checking gap for position {symbol}: {str(e)}")
 
     if positions_to_sell:
         print(f"\n[G9] 🔴 GUARDRAIL TRIGGERED: {len(positions_to_sell)} position(s) with >5% gap")
@@ -3510,7 +3511,7 @@ def check_overnight_gaps(positions_data, previous_prices_map):
         }
 
 
-def sell_gapped_positions(positions_to_sell, positions_data, account_hash, access_token):
+def sell_gapped_positions(positions_to_sell, holdings, account_hash, access_token):
     """Execute auto-sells for positions that gapped down >5%"""
 
     print(f"\n[G9] Executing auto-sells for {len(positions_to_sell)} position(s)...")
@@ -3521,12 +3522,12 @@ def sell_gapped_positions(positions_to_sell, positions_data, account_hash, acces
 
     for symbol in positions_to_sell:
         try:
-            position = next((p for p in positions_data if p.get('instrument', {}).get('symbol') == symbol), None)
-            if not position:
+            if symbol not in holdings:
                 continue
 
-            quantity = position.get('longQuantity', 0)
-            market_value = position.get('marketValue', 0)
+            position = holdings[symbol]
+            quantity = position.get('quantity', 0)
+            market_value = position.get('market_value', 0)
 
             print(f"[G9] Auto-selling {symbol}: {quantity:.4f} shares = ${market_value:.2f}")
 
@@ -3594,25 +3595,26 @@ def check_overnight_consolidation_needed(gap_details):
         }
 
 
-def consolidate_portfolio(positions_data, positions_down, account_hash, access_token):
+def consolidate_portfolio(holdings, positions_down, account_hash, access_token):
     """Consolidate portfolio: keep top 3 performers, sell others"""
 
     print(f"\n[G10] Consolidating portfolio...")
     print(f"[G10] Keeping top 3 performers, selling others...")
 
     position_scores = []
-    for position in positions_data:
-        symbol = position.get('instrument', {}).get('symbol', '')
-        market_value = position.get('marketValue', 0)
+    down_symbols = [p['symbol'] if isinstance(p, dict) else p for p in positions_down] if isinstance(positions_down, list) else []
 
-        is_down = any(p['symbol'] == symbol for p in positions_down)
+    for symbol, position in holdings.items():
+        market_value = position.get('market_value', 0)
+
+        is_down = symbol in down_symbols
         score = market_value if not is_down else market_value * 0.5
 
         position_scores.append({
             'symbol': symbol,
             'score': score,
             'value': market_value,
-            'quantity': position.get('longQuantity', 0)
+            'quantity': position.get('quantity', 0)
         })
 
     position_scores.sort(key=lambda p: p['score'], reverse=True)
