@@ -15,8 +15,7 @@ The following components are maintained in a **private repository** and are not 
 
 ### 2. Implementation Code
 - `lambda_function.py` — Live Lambda deployment code
-- `mcelveen_autonomous_trading_v*.py` — All algorithm implementations
-- `mcelveen_autonomous_forex_v*.py` — Forex integration modules
+- `mcelveen_autonomous_trading_v*.py` — All algorithm implementations (equities day trading)
 - Execution, order placement, and settlement logic
 
 ### 3. Configuration & Parameters

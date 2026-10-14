@@ -1,21 +1,23 @@
 # 🤖 McElveen Autonomous Trading System (v3.0.42)
 
-**⚠️ Architecture Reference Repository**
+**⚠️ Architecture Reference Repository — Equities Only**
 
 This is the **public architecture reference** for the McElveen Autonomous Trading System. The core proprietary algorithm, implementation code, and live trading parameters are maintained in a private repository. See [PROPRIETARY.md](PROPRIETARY.md) for details.
 
 ---
 
-An event-driven, serverless quantitative AI agent deployed on **AWS Lambda** that autonomously executes **day trading strategies** via the **Charles Schwab API** and **Anthropic's Claude**. 
+An event-driven, serverless quantitative AI agent deployed on **AWS Lambda** that autonomously executes **equities day trading strategies** via the **Charles Schwab API** and **Anthropic's Claude**. 
 
-The system runs continuously throughout market hours with zero manual intervention, capturing daily intraday profits (2%+, 3%+, 5%+) and systematically redeploying capital for exponential wealth compounding. Every decision is logged with full auditability and compliance guardrails.
+The system runs continuously throughout US market hours (9:30 AM - 4:00 PM ET) with zero manual intervention, capturing daily intraday profits (2%+, 3%+, 5%+) and systematically redeploying capital for exponential wealth compounding. Every decision is logged with full auditability and compliance guardrails.
 
-**Status:** ✅ **Live and Operational - Day Trader** (October 2026)  
-**Operating Mode:** Pure Day Trading (No overnight holds)  
+**Status:** ✅ **Live and Operational** (October 2026)  
+**Focus:** Equities Day Trading Only (US market hours)  
+**Operating Mode:** Pure Intraday (No overnight holds, no forex)  
 **Max Daily Trades:** 20 per day (high velocity execution)  
 **Profit Targets:** 2%+ • 3%+ • 5%+ (daily capture and reinvest)  
 **Asset Classes:** Equities • ETFs • Fractional Shares (0.001+ precision)  
-**Execution Venue:** Charles Schwab API
+**Execution Venue:** Charles Schwab API  
+**Roadmap:** Fargate upgrade for sub-second intraday execution (Q4 2026)
 
 ---
 
