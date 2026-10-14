@@ -43,10 +43,10 @@ SCHWAB_ACCOUNT_ID = os.environ.get("SCHWAB_ACCOUNT_ID")
 SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
 ALERT_EMAIL = os.environ.get("ALERT_EMAIL")
 
-# DynamoDB Tables
-DYNAMODB_OAUTH_TABLE = os.environ.get("DYNAMODB_OAUTH_TABLE", "mcelveen_oauth_tokens")
-DYNAMODB_TRADES_TABLE = os.environ.get("DYNAMODB_TRADES_TABLE", "mcelveen_trade_journal")
-DYNAMODB_POSITIONS_TABLE = os.environ.get("DYNAMODB_POSITIONS_TABLE", "mcelveen_position_snapshot")
+# DynamoDB Tables (must match trading system table names)
+DYNAMODB_OAUTH_TABLE = os.environ.get("DYNAMODB_OAUTH_TABLE", "mcelveen-oauth-tokens")
+DYNAMODB_TRADES_TABLE = os.environ.get("DYNAMODB_TRADES_TABLE", "mcelveen-trade-journal")
+DYNAMODB_POSITIONS_TABLE = os.environ.get("DYNAMODB_POSITIONS_TABLE", "mcelveen-positions-snapshot")
 
 # Securities lending enrollment status
 SECURITIES_LENDING_ENROLLED = os.environ.get("SECURITIES_LENDING_ENROLLED", "false").lower() == "true"
@@ -75,7 +75,7 @@ def get_refresh_token_from_dynamodb():
     try:
         print("[INFO] Reading refresh token from DynamoDB OAUTH table...")
         response = oauth_table.get_item(
-            Key={"token_key": "schwab_refresh_token"}
+            Key={"token_id": "schwab-refresh-token"}
         )
 
         if "Item" in response:
