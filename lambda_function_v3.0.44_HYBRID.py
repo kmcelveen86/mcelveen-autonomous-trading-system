@@ -3817,13 +3817,13 @@ def lambda_handler(event, context):
             previous_prices_map = {}
 
         # G9: Check for overnight gaps >5%
-        gap_check = check_overnight_gaps(positions_data, previous_prices_map)
+        gap_check = check_overnight_gaps(holdings, previous_prices_map)
 
         if gap_check['gap_detected']:
             # Auto-sell gapped positions
             gap_sells = sell_gapped_positions(
                 gap_check['positions_to_sell'],
-                positions_data,
+                holdings,
                 account_hash,
                 access_token
             )
@@ -3845,7 +3845,7 @@ def lambda_handler(event, context):
         if consolidation_check['consolidation_needed']:
             # Consolidate portfolio
             consolidate_result = consolidate_portfolio(
-                positions_data,
+                holdings,
                 consolidation_check['positions_down'],
                 account_hash,
                 access_token
