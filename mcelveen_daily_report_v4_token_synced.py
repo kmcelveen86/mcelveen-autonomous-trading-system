@@ -239,25 +239,39 @@ def get_today_trades():
 
 
 def get_positions_from_dynamodb():
-    """Get all current positions from DynamoDB positions snapshot (synced by trading system)"""
+    """Get all current positions from DynamoDB POSITIONS_SNAPSHOT (synced by trading system)
+
+    Trading system stores snapshot with Holdings as JSON string.
+    """
 
     try:
         print("[INFO] Fetching positions from DynamoDB positions snapshot...")
 
-        response = positions_table.scan()
+        response = positions_table.scan(Limit=10)
+        items = response.get("Items", [])
+
+        if not items:
+            print("[INFO] No positions snapshot found in DynamoDB")
+            return [], {}
+
+        # Get the latest snapshot (sort by SnapshotTime, most recent first)
+        latest_snapshot = sorted(items, key=lambda x: x.get('SnapshotTime', ''), reverse=True)[0]
+
+        # Parse the Holdings JSON string
+        holdings_json = latest_snapshot.get('Holdings', '{}')
+        holdings = json.loads(holdings_json)
+
         positions = []
         positions_map = {}
 
-        for item in response.get("Items", []):
-            # Trading system syncs: symbol, quantity, current_price, market_value, entry_date
-            symbol = item.get("symbol", "")
-            quantity = item.get("quantity", 0)
-            current_price = item.get("current_price", 0)
-            market_value = item.get("market_value", 0)
-            entry_date = item.get("entry_date", "")
+        # Convert holdings dict to position list
+        for symbol, holding in holdings.items():
+            quantity = holding.get("quantity", 0)
+            current_price = holding.get("current_price", 0)
+            market_value = holding.get("market_value", 0)
+            entry_date = holding.get("entry_date", "")
 
             if symbol and quantity > 0:
-                # Format position like Schwab API response
                 positions.append({
                     "symbol": symbol,
                     "quantity": quantity,
@@ -267,7 +281,7 @@ def get_positions_from_dynamodb():
                 })
                 positions_map[symbol] = entry_date
 
-        print(f"[INFO] ✅ Loaded {len(positions)} position(s) from DynamoDB")
+        print(f"[INFO] ✅ Loaded {len(positions)} position(s) from DynamoDB snapshot")
         return positions, positions_map
 
     except Exception as e:
