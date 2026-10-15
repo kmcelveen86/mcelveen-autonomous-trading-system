@@ -4,7 +4,7 @@ param(
     [switch]$SkipCloudFormation
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 Write-Host "[INFO] Starting McElveen Fargate Deployment..." -ForegroundColor Green
 
