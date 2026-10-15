@@ -62,11 +62,19 @@ function New-EcrRepositories {
     foreach ($repo in $repos) {
         $repoName = "mcelveen-$repo"
 
+        $repoExists = $false
         try {
             $existing = aws ecr describe-repositories --repository-names $repoName --region $AwsRegion 2>$null
-            Write-Info "Repository $repo already exists"
+            $repoExists = $true
         }
         catch {
+            $repoExists = $false
+        }
+
+        if ($repoExists) {
+            Write-Info "Repository $repo already exists"
+        }
+        else {
             Write-Info "Creating repository $repo..."
             aws ecr create-repository `
                 --repository-name $repoName `
@@ -158,6 +166,7 @@ function Verify-Deployment {
     Write-Info "Verifying deployment..."
 
     $clusterName = "mcelveen-$Environment"
+    $verified = $false
 
     try {
         aws ecs describe-clusters --clusters $clusterName --region $AwsRegion | Out-Null
@@ -178,12 +187,14 @@ function Verify-Deployment {
             }
         }
 
-        return $true
+        $verified = $true
     }
     catch {
         Write-Error-Custom "Cluster not found: $clusterName"
-        return $false
+        $verified = $false
     }
+
+    return $verified
 }
 
 function Print-Summary {
@@ -233,5 +244,4 @@ function Main {
     Write-Info "✓ Deployment completed successfully!"
 }
 
-# Execute
 Main
