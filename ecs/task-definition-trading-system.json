@@ -19,22 +19,30 @@
       "environment": [
         {
           "name": "AWS_REGION",
-          "value": "${AWS_REGION}"
+          "value": "us-east-1"
         },
         {
           "name": "PYTHON_LOG_LEVEL",
           "value": "INFO"
         },
         {
-          "name": "DYNAMODB_OAUTH_TABLE",
+          "name": "OAUTH_TOKENS_TABLE",
           "value": "mcelveen-oauth-tokens"
         },
         {
-          "name": "DYNAMODB_TRADES_TABLE",
+          "name": "TRADE_JOURNAL_TABLE",
           "value": "mcelveen-trades-table"
         },
         {
-          "name": "DYNAMODB_POSITIONS_TABLE",
+          "name": "EXECUTION_LOG_TABLE",
+          "value": "mcelveen-execution-log"
+        },
+        {
+          "name": "PORTFOLIO_METRICS_TABLE",
+          "value": "mcelveen-portfolio-metrics"
+        },
+        {
+          "name": "POSITIONS_SNAPSHOT_TABLE",
           "value": "mcelveen-positions-snapshot"
         },
         {
@@ -42,8 +50,54 @@
           "value": "HYBRID"
         },
         {
-          "name": "MARKET_CLOSE_TIME",
-          "value": "15:55"
+          "name": "AUTONOMOUS_MODE_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "WEEKLY_DEPOSIT_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "WEEKLY_DEPOSIT_AMOUNT",
+          "value": "2500"
+        },
+        {
+          "name": "ENABLE_CACHE",
+          "value": "true"
+        },
+        {
+          "name": "CLAUDE_MODEL",
+          "value": "claude-opus-5-5"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "SCHWAB_ACCOUNT_ID",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/account-id"
+        },
+        {
+          "name": "SCHWAB_CLIENT_ID",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/client-id"
+        },
+        {
+          "name": "SCHWAB_CLIENT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/client-secret"
+        },
+        {
+          "name": "SCHWAB_REFRESH_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/refresh-token"
+        },
+        {
+          "name": "CLAUDE_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/claude/api-key"
+        },
+        {
+          "name": "SNS_TOPIC_ARN",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/sns/topic-arn"
+        },
+        {
+          "name": "ALERT_EMAIL",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/alerts/email"
         }
       ],
       "logConfiguration": {

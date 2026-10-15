@@ -19,7 +19,7 @@
       "environment": [
         {
           "name": "AWS_REGION",
-          "value": "${AWS_REGION}"
+          "value": "us-east-1"
         },
         {
           "name": "PYTHON_LOG_LEVEL",
@@ -38,8 +38,34 @@
           "value": "mcelveen-positions-snapshot"
         },
         {
+          "name": "SECURITIES_LENDING_ELIGIBLE",
+          "value": "false"
+        },
+        {
+          "name": "SECURITIES_LENDING_ENROLLED",
+          "value": "false"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "SCHWAB_ACCOUNT_ID",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/account-id"
+        },
+        {
+          "name": "SCHWAB_CLIENT_ID",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/client-id"
+        },
+        {
+          "name": "SCHWAB_CLIENT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/client-secret"
+        },
+        {
           "name": "SNS_TOPIC_ARN",
-          "value": "arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:mcelveen-daily-report"
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/sns/topic-arn"
+        },
+        {
+          "name": "ALERT_EMAIL",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/alerts/email"
         }
       ],
       "logConfiguration": {
