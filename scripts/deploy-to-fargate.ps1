@@ -20,7 +20,7 @@ $InfoColor = 'Green'
 $WarnColor = 'Yellow'
 $ErrorColor = 'Red'
 
-# Functions
+# Helper Functions
 function Write-Info {
     param([string]$Message)
     Write-Host "[INFO] $Message" -ForegroundColor $InfoColor
@@ -36,6 +36,7 @@ function Write-Error-Custom {
     Write-Host "[ERROR] $Message" -ForegroundColor $ErrorColor
 }
 
+# Main Functions
 function Test-Prerequisites {
     Write-Info "Checking prerequisites..."
 
@@ -62,10 +63,7 @@ function New-EcrRepositories {
         $repoName = "mcelveen-$repo"
 
         try {
-            $existing = aws ecr describe-repositories `
-                --repository-names $repoName `
-                --region $AwsRegion 2>$null
-
+            $existing = aws ecr describe-repositories --repository-names $repoName --region $AwsRegion 2>$null
             Write-Info "Repository $repo already exists"
         }
         catch {
@@ -81,7 +79,6 @@ function New-EcrRepositories {
 
 function Invoke-EcrLogin {
     Write-Info "Logging in to ECR..."
-
     $ecrToken = aws ecr get-login-password --region $AwsRegion
     $ecrToken | docker login --username AWS --password-stdin $EcrRegistry
 }
@@ -180,16 +177,14 @@ function Verify-Deployment {
                 }
             }
         }
+
+        return $true
     }
     catch {
         Write-Error-Custom "Cluster not found: $clusterName"
         return $false
     }
-
-    return $true
 }
-
-
 
 function Print-Summary {
     $separator = "=" * 50
@@ -238,4 +233,5 @@ function Main {
     Write-Info "✓ Deployment completed successfully!"
 }
 
+# Execute
 Main
