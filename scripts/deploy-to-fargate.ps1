@@ -39,13 +39,11 @@ function Write-Error-Custom {
 function Test-Prerequisites {
     Write-Info "Checking prerequisites..."
 
-    # Check AWS CLI
     if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
         Write-Error-Custom "AWS CLI not found. Please install it first."
         exit 1
     }
 
-    # Check Docker
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
         Write-Error-Custom "Docker not found. Please install it first."
         exit 1
@@ -62,7 +60,6 @@ function New-EcrRepositories {
 
     foreach ($repo in $repos) {
         $repoName = "mcelveen-$repo"
-        $repoUri = "$EcrRegistry/$repoName"
 
         try {
             $existing = aws ecr describe-repositories `
@@ -102,12 +99,7 @@ function Build-And-Push-Image {
     $dateTag = Get-Date -Format "yyyyMMdd-HHmmss"
     $imageUriDated = "$EcrRegistry/mcelveen-${Service}:$dateTag"
 
-    # Build image
-    docker build `
-        -f $Dockerfile `
-        -t $imageUri `
-        -t $imageUriDated `
-        $Context
+    docker build -f $Dockerfile -t $imageUri -t $imageUriDated $Context
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Custom "Failed to build image for $Service"
@@ -126,20 +118,9 @@ function Deploy-Images {
 
     Invoke-EcrLogin
 
-    # Build trading system
-    Build-And-Push-Image "trading-system" `
-        "docker/Dockerfile.trading-system" `
-        "."
-
-    # Build daily report
-    Build-And-Push-Image "daily-report" `
-        "docker/Dockerfile.daily-report" `
-        "."
-
-    # Build token refresh
-    Build-And-Push-Image "token-refresh" `
-        "docker/Dockerfile.token-refresh" `
-        "."
+    Build-And-Push-Image "trading-system" "docker/Dockerfile.trading-system" "."
+    Build-And-Push-Image "daily-report" "docker/Dockerfile.daily-report" "."
+    Build-And-Push-Image "token-refresh" "docker/Dockerfile.token-refresh" "."
 }
 
 function Deploy-CloudFormation {
@@ -164,7 +145,7 @@ function Deploy-CloudFormation {
         --parameter-overrides `
             Environment="$Environment" `
             VpcId="$VpcId" `
-            PrivateSubnetIds="$SubnetIds" `
+            "PrivateSubnetIds=$SubnetIds" `
             TradingSystemImage="$EcrRegistry/mcelveen-trading-system:latest" `
             DailyReportImage="$EcrRegistry/mcelveen-daily-report:latest" `
             TokenRefreshImage="$EcrRegistry/mcelveen-token-refresh:latest" `
@@ -233,7 +214,6 @@ function Print-Summary {
     Write-Host ""
 }
 
-# Main execution
 function Main {
     Write-Info "Starting McElveen Fargate Deployment..."
 
@@ -256,5 +236,4 @@ function Main {
     Write-Info "✓ Deployment completed successfully!"
 }
 
-# Run main function
 Main
