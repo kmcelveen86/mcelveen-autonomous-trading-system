@@ -19,14 +19,14 @@
       "environment": [
         {
           "name": "AWS_REGION",
-          "value": "${AWS_REGION}"
+          "value": "us-east-1"
         },
         {
           "name": "PYTHON_LOG_LEVEL",
           "value": "INFO"
         },
         {
-          "name": "DYNAMODB_OAUTH_TABLE",
+          "name": "OAUTH_TOKENS_TABLE",
           "value": "mcelveen-oauth-tokens"
         },
         {
@@ -36,6 +36,32 @@
         {
           "name": "SERVICE_MODE",
           "value": "continuous"
+        },
+        {
+          "name": "MAIN_LAMBDA_NAME",
+          "value": "mcelveen-trading-system"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "SCHWAB_CLIENT_ID",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/client-id"
+        },
+        {
+          "name": "SCHWAB_CLIENT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/client-secret"
+        },
+        {
+          "name": "SCHWAB_REFRESH_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/schwab/refresh-token"
+        },
+        {
+          "name": "SNS_TOPIC_ARN",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/sns/topic-arn"
+        },
+        {
+          "name": "ALERT_EMAIL",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:mcelveen/alerts/email"
         }
       ],
       "logConfiguration": {
