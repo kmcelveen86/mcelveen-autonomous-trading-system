@@ -50,12 +50,10 @@ Write-Host "[INFO] Creating ECR repositories..." -ForegroundColor Green
 $repos = @("trading-system", "daily-report", "token-refresh")
 foreach ($repo in $repos) {
     $repoName = "mcelveen-$repo"
-    $repoExists = aws ecr describe-repositories --repository-names $repoName --region $AwsRegion -ErrorAction SilentlyContinue 2>$null
-    if ($repoExists) {
-        Write-Host "[INFO] Repository $repo already exists" -ForegroundColor Green
-    } else {
-        Write-Host "[INFO] Creating repository $repo..." -ForegroundColor Green
-        aws ecr create-repository --repository-name $repoName --region $AwsRegion --image-scanning-configuration scanOnPush=true --encryption-configuration encryptionType=AES | Out-Null
+    Write-Host "[INFO] Creating repository $repo..." -ForegroundColor Green
+    aws ecr create-repository --repository-name $repoName --region $AwsRegion --image-scanning-configuration scanOnPush=true --encryption-configuration encryptionType=AES 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 254) {
+        Write-Host "[INFO] Repository $repo ready" -ForegroundColor Green
     }
 }
 
