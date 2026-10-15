@@ -1,4 +1,4 @@
-# McElveen Fargate Deployment Script - PowerShell Version
+# McElveen Fargate Deployment Script
 # Builds Docker images and deploys to ECS on Fargate
 
 param(
@@ -36,7 +36,7 @@ function Write-Error-Custom {
     Write-Host "[ERROR] $Message" -ForegroundColor $ErrorColor
 }
 
-# Main Functions
+# Test Prerequisites
 function Test-Prerequisites {
     Write-Info "Checking prerequisites..."
 
@@ -54,6 +54,7 @@ function Test-Prerequisites {
     Write-Info "Using Region: $AwsRegion"
 }
 
+# Create ECR Repositories
 function New-EcrRepositories {
     Write-Info "Creating ECR repositories..."
 
@@ -61,17 +62,9 @@ function New-EcrRepositories {
 
     foreach ($repo in $repos) {
         $repoName = "mcelveen-$repo"
+        $existing = aws ecr describe-repositories --repository-names $repoName --region $AwsRegion -ErrorAction SilentlyContinue
 
-        $repoExists = $false
-        try {
-            $existing = aws ecr describe-repositories --repository-names $repoName --region $AwsRegion 2>$null
-            $repoExists = $true
-        }
-        catch {
-            $repoExists = $false
-        }
-
-        if ($repoExists) {
+        if ($existing) {
             Write-Info "Repository $repo already exists"
         }
         else {
@@ -85,12 +78,14 @@ function New-EcrRepositories {
     }
 }
 
+# ECR Login
 function Invoke-EcrLogin {
     Write-Info "Logging in to ECR..."
     $ecrToken = aws ecr get-login-password --region $AwsRegion
     $ecrToken | docker login --username AWS --password-stdin $EcrRegistry
 }
 
+# Build and Push Image
 function Build-And-Push-Image {
     param(
         [string]$Service,
@@ -118,6 +113,7 @@ function Build-And-Push-Image {
     Write-Info "✓ $Service image pushed: $imageUri"
 }
 
+# Deploy Images
 function Deploy-Images {
     Write-Info "Building and pushing Docker images..."
 
@@ -128,6 +124,7 @@ function Deploy-Images {
     Build-And-Push-Image "token-refresh" "docker/Dockerfile.token-refresh" "."
 }
 
+# Deploy CloudFormation
 function Deploy-CloudFormation {
     Write-Info "Deploying CloudFormation stack..."
 
@@ -141,7 +138,6 @@ function Deploy-CloudFormation {
     }
 
     $stackName = "mcelveen-ecs-$Environment"
-
     Write-Info "Creating/Updating CloudFormation stack: $stackName"
 
     aws cloudformation deploy `
@@ -162,41 +158,39 @@ function Deploy-CloudFormation {
     return $true
 }
 
+# Verify Deployment
 function Verify-Deployment {
     Write-Info "Verifying deployment..."
 
     $clusterName = "mcelveen-$Environment"
-    $verified = $false
+    $clusterInfo = aws ecs describe-clusters --clusters $clusterName --region $AwsRegion -ErrorAction SilentlyContinue
 
-    try {
-        aws ecs describe-clusters --clusters $clusterName --region $AwsRegion | Out-Null
-        Write-Info "✓ ECS Cluster exists: $clusterName"
+    if (-not $clusterInfo) {
+        Write-Error-Custom "Cluster not found: $clusterName"
+        return $false
+    }
 
-        $services = aws ecs list-services `
-            --cluster $clusterName `
-            --region $AwsRegion `
-            --query 'serviceArns[]' `
-            --output text
+    Write-Info "✓ ECS Cluster exists: $clusterName"
 
-        if ($services) {
-            foreach ($service in $services -split '\s+') {
-                if ($service) {
-                    $serviceName = $service -split '/' | Select-Object -Last 1
-                    Write-Info "  Service: $serviceName"
-                }
+    $services = aws ecs list-services `
+        --cluster $clusterName `
+        --region $AwsRegion `
+        --query 'serviceArns[]' `
+        --output text -ErrorAction SilentlyContinue
+
+    if ($services) {
+        foreach ($service in $services -split '\s+') {
+            if ($service) {
+                $serviceName = $service -split '/' | Select-Object -Last 1
+                Write-Info "  Service: $serviceName"
             }
         }
-
-        $verified = $true
-    }
-    catch {
-        Write-Error-Custom "Cluster not found: $clusterName"
-        $verified = $false
     }
 
-    return $verified
+    return $true
 }
 
+# Print Summary
 function Print-Summary {
     $separator = "=" * 50
     Write-Host ""
@@ -222,26 +216,23 @@ function Print-Summary {
     Write-Host ""
 }
 
-function Main {
-    Write-Info "Starting McElveen Fargate Deployment..."
+# Main Execution
+Write-Info "Starting McElveen Fargate Deployment..."
 
-    Test-Prerequisites
-    New-EcrRepositories
-    Deploy-Images
+Test-Prerequisites
+New-EcrRepositories
+Deploy-Images
 
-    if (-not $SkipCloudFormation) {
-        $cfSuccess = Deploy-CloudFormation
-        if ($cfSuccess) {
-            Verify-Deployment
-        }
+if (-not $SkipCloudFormation) {
+    $cfSuccess = Deploy-CloudFormation
+    if ($cfSuccess) {
+        Verify-Deployment
     }
-    else {
-        Write-Warn "Skipping CloudFormation deployment (SkipCloudFormation flag set)"
-        Write-Info "To deploy CloudFormation, run: .\deploy-to-fargate.ps1"
-    }
-
-    Print-Summary
-    Write-Info "✓ Deployment completed successfully!"
+}
+else {
+    Write-Warn "Skipping CloudFormation deployment (SkipCloudFormation flag set)"
+    Write-Info "To deploy CloudFormation, run: .\deploy-to-fargate.ps1"
 }
 
-Main
+Print-Summary
+Write-Info "✓ Deployment completed successfully!"
