@@ -1,0 +1,78 @@
+{
+  "family": "mcelveen-trading-system",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [
+    {
+      "name": "trading-system",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/mcelveen-trading-system:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "${AWS_REGION}"
+        },
+        {
+          "name": "PYTHON_LOG_LEVEL",
+          "value": "INFO"
+        },
+        {
+          "name": "DYNAMODB_OAUTH_TABLE",
+          "value": "mcelveen-oauth-tokens"
+        },
+        {
+          "name": "DYNAMODB_TRADES_TABLE",
+          "value": "mcelveen-trades-table"
+        },
+        {
+          "name": "DYNAMODB_POSITIONS_TABLE",
+          "value": "mcelveen-positions-snapshot"
+        },
+        {
+          "name": "TRADING_STRATEGY",
+          "value": "HYBRID"
+        },
+        {
+          "name": "MARKET_CLOSE_TIME",
+          "value": "15:55"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/mcelveen-trading-system",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ],
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/mcelveen-trading-system-task-role",
+  "tags": [
+    {
+      "key": "Service",
+      "value": "Trading-System"
+    },
+    {
+      "key": "Environment",
+      "value": "Production"
+    }
+  ]
+}

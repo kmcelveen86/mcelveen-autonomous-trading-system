@@ -1,0 +1,70 @@
+{
+  "family": "mcelveen-token-refresh",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "token-refresh",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/mcelveen-token-refresh:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "${AWS_REGION}"
+        },
+        {
+          "name": "PYTHON_LOG_LEVEL",
+          "value": "INFO"
+        },
+        {
+          "name": "DYNAMODB_OAUTH_TABLE",
+          "value": "mcelveen-oauth-tokens"
+        },
+        {
+          "name": "REFRESH_INTERVAL",
+          "value": "1800"
+        },
+        {
+          "name": "SERVICE_MODE",
+          "value": "continuous"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/mcelveen-token-refresh",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ],
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/mcelveen-token-refresh-task-role",
+  "tags": [
+    {
+      "key": "Service",
+      "value": "Token-Refresh"
+    },
+    {
+      "key": "Environment",
+      "value": "Production"
+    }
+  ]
+}

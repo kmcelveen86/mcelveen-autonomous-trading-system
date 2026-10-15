@@ -1,0 +1,112 @@
+version: '3.9'
+
+services:
+  # LocalStack for local DynamoDB testing
+  localstack:
+    image: localstack/localstack:latest
+    container_name: mcelveen-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: dynamodb,sns
+      DEBUG: 1
+      DATA_DIR: /tmp/localstack/data
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - localstack-data:/tmp/localstack
+    networks:
+      - mcelveen-network
+
+  # Trading System Container
+  trading-system:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.trading-system
+    container_name: mcelveen-trading-system
+    environment:
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      DYNAMODB_OAUTH_TABLE: mcelveen-oauth-tokens
+      DYNAMODB_TRADES_TABLE: mcelveen-trades-table
+      DYNAMODB_POSITIONS_TABLE: mcelveen-positions-snapshot
+      TRADING_STRATEGY: HYBRID
+      MARKET_CLOSE_TIME: 15:55
+      PYTHON_LOG_LEVEL: DEBUG
+    ports:
+      - "8001:8080"
+    depends_on:
+      - localstack
+    networks:
+      - mcelveen-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Daily Report Container
+  daily-report:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.daily-report
+    container_name: mcelveen-daily-report
+    environment:
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      DYNAMODB_OAUTH_TABLE: mcelveen-oauth-tokens
+      DYNAMODB_TRADES_TABLE: mcelveen-trades-table
+      DYNAMODB_POSITIONS_TABLE: mcelveen-positions-snapshot
+      SNS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:mcelveen-daily-report
+      PYTHON_LOG_LEVEL: DEBUG
+    ports:
+      - "8002:8080"
+    depends_on:
+      - localstack
+    networks:
+      - mcelveen-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Token Refresh Service
+  token-refresh:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.token-refresh
+    container_name: mcelveen-token-refresh
+    environment:
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      DYNAMODB_OAUTH_TABLE: mcelveen-oauth-tokens
+      REFRESH_INTERVAL: 1800
+      SERVICE_MODE: continuous
+      PYTHON_LOG_LEVEL: DEBUG
+    ports:
+      - "8003:8080"
+    depends_on:
+      - localstack
+    networks:
+      - mcelveen-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  localstack-data:
+
+networks:
+  mcelveen-network:
+    driver: bridge

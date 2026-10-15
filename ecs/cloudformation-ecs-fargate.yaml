@@ -1,0 +1,542 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'McElveen Autonomous Trading System - Fargate ECS Infrastructure'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [development, staging, production]
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID for ECS tasks
+
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnet IDs for ECS tasks
+
+  TradingSystemImage:
+    Type: String
+    Description: Docker image URI for trading system
+
+  DailyReportImage:
+    Type: String
+    Description: Docker image URI for daily report
+
+  TokenRefreshImage:
+    Type: String
+    Description: Docker image URI for token refresh
+
+  DynamoDBOAuthTable:
+    Type: String
+    Default: mcelveen-oauth-tokens
+
+  DynamoDBTradesTable:
+    Type: String
+    Default: mcelveen-trades-table
+
+  DynamoDBPositionsTable:
+    Type: String
+    Default: mcelveen-positions-snapshot
+
+Resources:
+  # ===== SECURITY GROUPS =====
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS to AWS APIs
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP for health checks
+      Tags:
+        - Key: Name
+          Value: !Sub mcelveen-ecs-sg-${Environment}
+
+  # ===== IAM ROLES =====
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: '*'
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+  TradingSystemTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBOAuthTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTradesTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBPositionsTable}
+
+  DailyReportTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBOAuthTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTradesTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBPositionsTable}
+        - PolicyName: SNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Sub arn:aws:sns:${AWS::Region}:${AWS::AccountId}:mcelveen-daily-report
+
+  TokenRefreshTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBOAuthTable}
+
+  # ===== ECS CLUSTER =====
+  McElveenCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub mcelveen-${Environment}
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub mcelveen-cluster-${Environment}
+
+  # ===== CLOUDWATCH LOG GROUPS =====
+  TradingSystemLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/mcelveen-trading-system
+      RetentionInDays: 30
+
+  DailyReportLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/mcelveen-daily-report
+      RetentionInDays: 30
+
+  TokenRefreshLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/mcelveen-token-refresh
+      RetentionInDays: 7
+
+  # ===== ECS TASK DEFINITIONS =====
+  TradingSystemTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: mcelveen-trading-system
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TradingSystemTaskRole.Arn
+      ContainerDefinitions:
+        - Name: trading-system
+          Image: !Ref TradingSystemImage
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref TradingSystemLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: DYNAMODB_OAUTH_TABLE
+              Value: !Ref DynamoDBOAuthTable
+            - Name: DYNAMODB_TRADES_TABLE
+              Value: !Ref DynamoDBTradesTable
+            - Name: DYNAMODB_POSITIONS_TABLE
+              Value: !Ref DynamoDBPositionsTable
+            - Name: TRADING_STRATEGY
+              Value: HYBRID
+            - Name: MARKET_CLOSE_TIME
+              Value: '15:55'
+
+  DailyReportTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: mcelveen-daily-report
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt DailyReportTaskRole.Arn
+      ContainerDefinitions:
+        - Name: daily-report
+          Image: !Ref DailyReportImage
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref DailyReportLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: DYNAMODB_OAUTH_TABLE
+              Value: !Ref DynamoDBOAuthTable
+            - Name: DYNAMODB_TRADES_TABLE
+              Value: !Ref DynamoDBTradesTable
+            - Name: DYNAMODB_POSITIONS_TABLE
+              Value: !Ref DynamoDBPositionsTable
+
+  TokenRefreshTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: mcelveen-token-refresh
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TokenRefreshTaskRole.Arn
+      ContainerDefinitions:
+        - Name: token-refresh
+          Image: !Ref TokenRefreshImage
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref TokenRefreshLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: DYNAMODB_OAUTH_TABLE
+              Value: !Ref DynamoDBOAuthTable
+            - Name: REFRESH_INTERVAL
+              Value: '1800'
+
+  # ===== EVENTBRIDGE RULES FOR SCHEDULING =====
+  # Trading System - Every 5 minutes Mon-Fri 9:30 AM - 4:00 PM EST/EDT
+  # Uses multiple rules to handle the interval pattern
+  TradingSystemScheduleRule0930:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Trading System every 5 mins starting 9:30 AM
+      ScheduleExpression: cron(30,35,40,45,50,55 9 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref TradingSystemTaskDefinition
+
+  TradingSystemScheduleRule10:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Trading System every 5 mins 10:00 AM - 11:55 AM
+      ScheduleExpression: cron(0,5,10,15,20,25,30,35,40,45,50,55 10 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref TradingSystemTaskDefinition
+
+  TradingSystemScheduleRule11:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Trading System every 5 mins 11:00 AM - 11:55 AM
+      ScheduleExpression: cron(0,5,10,15,20,25,30,35,40,45,50,55 11 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref TradingSystemTaskDefinition
+
+  TradingSystemScheduleRule12:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Trading System every 5 mins 12:00 PM - 12:55 PM
+      ScheduleExpression: cron(0,5,10,15,20,25,30,35,40,45,50,55 12 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref TradingSystemTaskDefinition
+
+  TradingSystemScheduleRule13:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Trading System every 5 mins 1:00 PM - 1:55 PM
+      ScheduleExpression: cron(0,5,10,15,20,25,30,35,40,45,50,55 13 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref TradingSystemTaskDefinition
+
+  TradingSystemScheduleRule14:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Trading System every 5 mins 2:00 PM - 2:55 PM
+      ScheduleExpression: cron(0,5,10,15,20,25,30,35,40,45,50,55 14 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref TradingSystemTaskDefinition
+
+  TradingSystemScheduleRule15:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Trading System every 5 mins 3:00 PM - 3:55 PM
+      ScheduleExpression: cron(0,5,10,15,20,25,30,35,40,45,50,55 15 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref TradingSystemTaskDefinition
+
+  TradingSystemScheduleRule16:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Trading System every 5 mins 4:00 PM (last execution)
+      ScheduleExpression: cron(0 16 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref TradingSystemTaskDefinition
+
+  DailyReportScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Daily Report at 4:05 PM EST/EDT (5 mins after market close)
+      ScheduleExpression: cron(5 16 ? * MON-FRI *)  # 4:05 PM EST/EDT Mon-Fri only
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt McElveenCluster.ClusterArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets: !Ref PrivateSubnetIds
+                SecurityGroups:
+                  - !Ref ECSSecurityGroup
+            TaskDefinitionArn: !Ref DailyReportTaskDefinition
+
+  # ===== IAM ROLE FOR EVENTBRIDGE =====
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ECSRunTask
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask
+                Resource:
+                  - !Ref TradingSystemTaskDefinition
+                  - !Ref DailyReportTaskDefinition
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt ECSTaskExecutionRole.Arn
+                  - !GetAtt TradingSystemTaskRole.Arn
+                  - !GetAtt DailyReportTaskRole.Arn
+
+  # ===== ECS SERVICE FOR TOKEN REFRESH (CONTINUOUS) =====
+  TokenRefreshService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: mcelveen-token-refresh-service
+      Cluster: !Ref McElveenCluster
+      TaskDefinition: !Ref TokenRefreshTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsVpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnetIds
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      Tags:
+        - Key: Name
+          Value: mcelveen-token-refresh-service
+
+Outputs:
+  ClusterName:
+    Value: !Ref McElveenCluster
+    Export:
+      Name: !Sub McElveenCluster-${Environment}
+
+  TradingSystemTaskDefinitionArn:
+    Value: !Ref TradingSystemTaskDefinition
+
+  DailyReportTaskDefinitionArn:
+    Value: !Ref DailyReportTaskDefinition
+
+  TokenRefreshServiceArn:
+    Value: !GetAtt TokenRefreshService.ServiceArn
+
+  SecurityGroupId:
+    Value: !Ref ECSSecurityGroup

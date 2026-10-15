@@ -1,7 +1,31 @@
+# Core AWS SDKs
 boto3>=1.35.0
-anthropic>=0.25.0
+botocore>=1.32.0
+
+# HTTP/REST
 requests>=2.31.0
+urllib3>=2.0.0
+
+# Date/Time
 python-dateutil>=2.8.2
 pytz>=2023.3
+
+# Configuration
 python-dotenv>=1.0.0
 pydantic>=2.5.0
+
+# Anthropic (for future integrations)
+anthropic>=0.25.0
+
+# Data processing (for reports)
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Logging
+python-json-logger>=2.0.0
+
+# Health checks
+prometheus-client>=0.18.0
+
+# Optional market data
+yfinance>=0.2.30
