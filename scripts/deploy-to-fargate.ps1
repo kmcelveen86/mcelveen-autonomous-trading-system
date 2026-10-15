@@ -28,12 +28,29 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
+function Build-Image {
+    param([string]$Service, [string]$Dockerfile)
+    Write-Host "[INFO] Building image for $Service..." -ForegroundColor Green
+    $imageUri = "$EcrRegistry/mcelveen-${Service}:latest"
+    $dateTag = Get-Date -Format "yyyyMMdd-HHmmss"
+    $imageUriDated = "$EcrRegistry/mcelveen-${Service}:$dateTag"
+    docker build -f $Dockerfile -t $imageUri -t $imageUriDated .
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Failed to build image for $Service" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "[INFO] Pushing $Service image to ECR..." -ForegroundColor Green
+    docker push $imageUri
+    docker push $imageUriDated
+    Write-Host "[INFO] OK $Service image pushed: $imageUri" -ForegroundColor Green
+}
+
 Write-Host "[INFO] Creating ECR repositories..." -ForegroundColor Green
 
 $repos = @("trading-system", "daily-report", "token-refresh")
 foreach ($repo in $repos) {
     $repoName = "mcelveen-$repo"
-    $existing = aws ecr describe-repositories --repository-names $repoName --region $AwsRegion -ErrorAction SilentlyContinue
+    $existing = aws ecr describe-repositories --repository-names $repoName --region $AwsRegion 2>&1 | Select-String "RepositoryArn"
     if ($existing) {
         Write-Host "[INFO] Repository $repo already exists" -ForegroundColor Green
     } else {
@@ -51,23 +68,6 @@ Write-Host "[INFO] Building and pushing Docker images..." -ForegroundColor Green
 Build-Image "trading-system" "docker/Dockerfile.trading-system"
 Build-Image "daily-report" "docker/Dockerfile.daily-report"
 Build-Image "token-refresh" "docker/Dockerfile.token-refresh"
-
-function Build-Image {
-    param([string]$Service, [string]$Dockerfile)
-    Write-Host "[INFO] Building image for $Service..." -ForegroundColor Green
-    $imageUri = "$EcrRegistry/mcelveen-${Service}:latest"
-    $dateTag = Get-Date -Format "yyyyMMdd-HHmmss"
-    $imageUriDated = "$EcrRegistry/mcelveen-${Service}:$dateTag"
-    docker build -f $Dockerfile -t $imageUri -t $imageUriDated .
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[ERROR] Failed to build image for $Service" -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "[INFO] Pushing $Service image to ECR..." -ForegroundColor Green
-    docker push $imageUri
-    docker push $imageUriDated
-    Write-Host "[INFO] OK $Service image pushed: $imageUri" -ForegroundColor Green
-}
 
 if (-not $SkipCloudFormation) {
     Write-Host "[INFO] Deploying CloudFormation stack..." -ForegroundColor Green
